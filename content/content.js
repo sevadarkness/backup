@@ -317,6 +317,7 @@
 
     const wantFiles = !!settings.downloadMediaFiles;
     const wantInline = settings.format === "html";
+    const inlineTypes = ['image', 'sticker', 'video', 'audio', 'ptt'];
 
     const MAX_INLINE_TOTAL = 25 * 1024 * 1024; // ~25MB
     let inlineTotal = 0;
@@ -354,7 +355,6 @@
         msg.media.fileName = fileName;
 
         // inline for HTML if size budget allows (images, videos, audio)
-        const inlineTypes = ['image', 'sticker', 'video', 'audio', 'ptt'];
         if (wantInline && inlineTypes.includes(msg.media.type)) {
           const approx = String(res.dataUrl).length * 0.75;
           if (inlineTotal + approx <= MAX_INLINE_TOTAL) {
@@ -382,12 +382,13 @@
       if (i % 10 === 0) await new Promise(r => setTimeout(r, 80));
     }
     
-    // Final progress update with summary
+    // Final progress update with summary (percent matches loop calculation)
+    const finalPct = Math.min(88 + Math.round((work.length / Math.max(work.length, 1)) * 5), 93);
     chrome.runtime.sendMessage({ 
       type: "progress", 
       current: work.length, 
       total: work.length, 
-      percent: 93, 
+      percent: finalPct, 
       status: `Mídias processadas: ${successCount} sucesso, ${failCount} falhas` 
     });
   }

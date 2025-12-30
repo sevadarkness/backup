@@ -204,8 +204,8 @@
       directPath: m?.__x_directPath || m?.directPath || null,
       filehash: m?.__x_filehash || m?.filehash || null,
       encFilehash: m?.__x_encFilehash || m?.encFilehash || null,
-      mediaKeyTimestamp: m?.__x_mediaKeyTimestamp || m?.mediaKeyTimestamp || null,
-      deprecatedMms3Url: m?.__x_deprecatedMms3Url || m?.deprecatedMms3Url || null,
+      mediaKeyTimestamp: m?.__x_mediaKeyTimestamp || m?.mediaKeyTimestamp || null, // Used by downloadAndMaybeDecrypt
+      deprecatedMms3Url: m?.__x_deprecatedMms3Url || m?.deprecatedMms3Url || null, // Fallback direct CDN URL
       hasMedia: !!(m?.__x_mediaKey || m?.mediaKey || m?.mediaData || m?.__x_mediaData)
     }));
 
