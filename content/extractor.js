@@ -58,10 +58,19 @@
   function getChatInfo(chat) {
     if (!chat) return null;
     
-    const name = chat?.name || chat?.formattedTitle || chat?.contact?.pushname || chat?.id?._serialized || "Conversa";
+    // Tentar múltiplas propriedades para o nome
+    const name = chat?.name || 
+                 chat?.formattedTitle || 
+                 chat?.__x_formattedTitle ||
+                 chat?.contact?.name ||
+                 chat?.contact?.pushname || 
+                 chat?.contact?.__x_pushname ||
+                 chat?.id?._serialized || 
+                 "Conversa";
+    
     const isGroup = !!(chat?.isGroup || chat?.__x_isGroup);
     
-    // Try to get profile picture
+    // Tentar múltiplas propriedades para a foto
     // NOTE: These paths depend on WhatsApp Web's internal API structure
     // and may break with future WhatsApp updates. Multiple fallback paths
     // are provided to improve compatibility across different versions.
@@ -69,21 +78,28 @@
     try {
       profilePic = chat?.contact?.profilePicThumb?.__x_imgFull || 
                    chat?.contact?.profilePicThumb?.__x_img || 
+                   chat?.contact?.profilePicThumb?.img ||
+                   chat?.__x_profilePicThumb ||
                    chat?.__x_groupMeta?.profilePicThumb?.__x_imgFull ||
                    chat?.__x_groupMeta?.profilePicThumb?.__x_img ||
                    chat?.groupMetadata?.profilePicThumb?.__x_imgFull ||
                    chat?.groupMetadata?.profilePicThumb?.__x_img ||
+                   chat?.groupMetadata?.profilePicThumb ||
                    null;
     } catch (e) {
       // Fail silently - profile picture is optional
       profilePic = null;
     }
     
+    const participants = isGroup ? 
+      (chat?.groupMetadata?.participants?.length || 
+       chat?.__x_groupMetadata?.participants?.length || null) : null;
+    
     return {
       name,
       isGroup,
       profilePic,
-      participants: isGroup ? (chat?.groupMetadata?.participants?.length || null) : null
+      participants
     };
   }
 
