@@ -378,19 +378,11 @@
   
   // Get media URL from message object
   function getMediaUrl(msg) {
-    // Try entry.deprecatedMms3Url first
-    const entry = msg.mediaObject && msg.mediaObject.entries && 
-                  msg.mediaObject.entries.entries && msg.mediaObject.entries.entries[0];
-    if (entry && entry.deprecatedMms3Url) {
-      return entry.deprecatedMms3Url;
-    }
-    
-    // Fallback to msg.deprecatedMms3Url (works for stickers)
+    // Only use properties that survive serialization
     if (msg.deprecatedMms3Url) {
       return msg.deprecatedMms3Url;
     }
     
-    // Construct URL manually as last resort
     if (msg.directPath) {
       return "https://mmg.whatsapp.net" + msg.directPath;
     }
@@ -400,9 +392,8 @@
 
   // Get mediaKey from message object
   function getMediaKey(msg) {
-    const entry = msg.mediaObject && msg.mediaObject.entries && 
-                  msg.mediaObject.entries.entries && msg.mediaObject.entries.entries[0];
-    return (entry && entry.mediaKey) || msg.mediaKey;
+    // Only use properties that survive serialization
+    return msg.mediaKey || null;
   }
 
   // HKDF Expand with WhatsApp info strings
@@ -574,8 +565,8 @@
             
             let blob = null;
             
-            // Try WAWebDownloadManager first (fastest method)
-            if (dm && (msg.type === 'image' || msg.type === 'audio' || msg.type === 'ptt')) {
+            // Try WAWebDownloadManager first (fastest and most reliable method)
+            if (dm) {
               try {
                 const downloadParams = {
                   directPath: msg.directPath,
@@ -594,19 +585,17 @@
                   blob = new Blob([arrayBuffer], { type: msg.mimetype || 'application/octet-stream' });
                 }
               } catch (e) {
-                console.debug(`[ChatBackup] downloadAndMaybeDecrypt failed for ${msg.type}, trying manual decryption:`, e?.message || e);
+                console.debug(`[ChatBackup] downloadAndMaybeDecrypt failed for ${msg.type}:`, e?.message || e);
               }
             }
             
-            // Fallback to manual decryption for documents or if downloadAndMaybeDecrypt failed
-            if (!blob) {
+            // Fallback ONLY if downloadAndMaybeDecrypt failed AND we have a direct URL
+            if (!blob && msg.deprecatedMms3Url) {
               try {
                 blob = await downloadAndDecryptMedia(msg);
               } catch (e) {
-                const msgId = msg.id || msg.t || 'unknown';
-                console.error(`[ChatBackup] Manual decryption failed for ${groupName} (ID: ${msgId}):`, e?.message || e);
-                failedCount++;
-                return null;
+                // Log but don't fail - some media just can't be downloaded
+                console.warn(`[ChatBackup] Manual decryption also failed for ${msg.type}:`, e?.message);
               }
             }
             
