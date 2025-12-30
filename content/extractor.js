@@ -382,16 +382,49 @@
   
   // Get media URL from message object
   function getMediaUrl(msg) {
-    // Only use properties that survive serialization
-    if (msg.deprecatedMms3Url) {
-      return msg.deprecatedMms3Url;
+    // 1. Tentar deprecatedMms3Url primeiro (URL completa)
+    if (msg.deprecatedMms3Url && msg.deprecatedMms3Url.startsWith('https://')) {
+      // Validar que não é uma URL de thumbnail
+      if (!msg.deprecatedMms3Url.includes('thumbnail')) {
+        return msg.deprecatedMms3Url;
+      }
     }
     
+    // 2. Construir URL a partir de directPath
     if (msg.directPath) {
       return "https://mmg.whatsapp.net" + msg.directPath;
     }
     
     return null;
+  }
+
+  // Fetch with CDN fallback
+  async function fetchWithCdnFallback(directPath) {
+    const cdns = [
+      "https://mmg.whatsapp.net",
+      "https://media.fna.whatsapp.net", 
+      "https://media-for2-1.cdn.whatsapp.net",
+      "https://media-for2-2.cdn.whatsapp.net"
+    ];
+    
+    let lastError = null;
+    for (const cdn of cdns) {
+      try {
+        const url = cdn + directPath;
+        const response = await fetch(url);
+        if (response.ok) {
+          return await response.arrayBuffer();
+        }
+        // Log non-ok responses for debugging
+        console.debug(`[ChatBackup] CDN ${cdn} returned status ${response.status}`);
+      } catch (e) {
+        lastError = e;
+        console.debug(`[ChatBackup] CDN ${cdn} failed:`, e.message);
+        continue;
+      }
+    }
+    
+    throw lastError || new Error('All CDNs failed');
   }
 
   // Get mediaKey from message object
@@ -463,37 +496,64 @@
     const url = getMediaUrl(msg);
     const mediaKey = getMediaKey(msg);
     
-    // Validação mais robusta
     if (!url) {
-      throw new Error('URL de mídia não disponível - mídia pode não ter sido carregada');
+      throw new Error('URL de mídia não disponível');
     }
     
     if (!mediaKey) {
       throw new Error('mediaKey não disponível');
     }
     
-    // Verificar se URL é válida (não undefined/null convertido para string)
-    if (!url.startsWith('http')) {
+    // Validação mais rigorosa de URL
+    if (!url.startsWith('http') || url.includes('undefined') || url.includes('null')) {
       throw new Error(`URL inválida: ${url}`);
     }
     
-    // Download encrypted data
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} - Mídia pode ter expirado`);
+    // Para stickers, tentar download direto primeiro (alguns não precisam de decriptação)
+    if (msg.type === 'sticker' && msg.deprecatedMms3Url) {
+      try {
+        const response = await fetch(msg.deprecatedMms3Url);
+        if (response.ok) {
+          const blob = await response.blob();
+          // Verificar se é um sticker válido (qualquer tipo de imagem com tamanho > 0)
+          if (blob.size > 0 && (blob.type.includes('webp') || blob.type.includes('image/'))) {
+            return blob;
+          }
+        }
+      } catch (e) {
+        // Fallback para decriptação normal
+        console.debug('[ChatBackup] Direct sticker download failed, trying decryption');
+      }
     }
     
-    const encryptedData = await response.arrayBuffer();
+    // Download com fallback de CDNs se tiver directPath
+    let encryptedData;
+    if (msg.directPath) {
+      try {
+        encryptedData = await fetchWithCdnFallback(msg.directPath);
+      } catch (e) {
+        // Tentar URL direta como fallback final
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} - Mídia pode ter expirado`);
+        }
+        encryptedData = await response.arrayBuffer();
+      }
+    } else {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} - Mídia pode ter expirado`);
+      }
+      encryptedData = await response.arrayBuffer();
+    }
     
-    // Decrypt
     const decryptedData = await decryptMedia(
       new Uint8Array(encryptedData),
       mediaKey,
       msg.type
     );
     
-    // Return blob
-    return new Blob([decryptedData], { type: msg.mimetype });
+    return new Blob([decryptedData], { type: msg.mimetype || 'application/octet-stream' });
   }
 
   // ============ End Manual Decryption Functions ============
@@ -523,12 +583,26 @@
       // Check if message has media - mediaKey is the most reliable indicator
       if (!msg.mediaKey) continue;
       
-      // NOVO: Verificar se tem URL disponível ANTES de adicionar à fila
-      const hasMediaUrl = getMediaUrl(msg) !== null;
+      // Verificar se tem URL disponível ANTES de adicionar à fila
+      const mediaUrl = getMediaUrl(msg);
       
-      if (!hasMediaUrl) {
+      if (!mediaUrl) {
         console.log(`[ChatBackup] Skipping ${type} without media URL (ID: ${msg.id || 'unknown'})`);
-        continue; // Pular esta mídia - não tem como baixar
+        continue;
+      }
+      
+      // Ignorar URLs de thumbnail
+      if (mediaUrl.includes('thumbnail')) {
+        console.log(`[ChatBackup] Skipping thumbnail URL for ${type} (ID: ${msg.id || 'unknown'})`);
+        continue;
+      }
+      
+      // Para stickers, verificar se realmente temos uma URL válida
+      if (type === 'sticker') {
+        if (mediaUrl.includes('undefined') || mediaUrl.includes('null')) {
+          console.log(`[ChatBackup] Skipping sticker without valid URL (ID: ${msg.id})`);
+          continue;
+        }
       }
       
       if (exportImages && (type === 'image' || type === 'sticker' || type === 'video')) {
