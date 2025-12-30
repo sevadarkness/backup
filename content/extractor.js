@@ -658,10 +658,25 @@
       if (!mediaFiles || mediaFiles.length === 0) return null;
       
       try {
-        const JSZip = window.JSZip;
-        if (!JSZip) {
-          throw new Error("JSZip library not loaded. Please refresh the page and try again.");
+        // Aguardar JSZip carregar com polling (máximo 10 segundos)
+        let JSZip = window.JSZip;
+        let attempts = 0;
+        const maxAttempts = 100;
+        
+        while (!JSZip && attempts < maxAttempts) {
+          await new Promise(r => setTimeout(r, 100));
+          JSZip = window.JSZip;
+          attempts++;
+          if (attempts % 10 === 0) {
+            console.log(`[ChatBackup] Waiting for JSZip... attempt ${attempts}`);
+          }
         }
+        
+        if (!JSZip) {
+          throw new Error("JSZip library not loaded after 10 seconds. Please refresh the page.");
+        }
+        
+        console.log('[ChatBackup] JSZip found, creating ZIP...');
         
         const zip = new JSZip();
         const usedNames = new Set();
@@ -733,49 +748,68 @@
   async function createMediaZip(mediaFiles, zipName) {
     if (!mediaFiles || mediaFiles.length === 0) return null;
     
-    // Load JSZip from global scope (should be loaded in manifest)
-    const JSZip = window.JSZip;
-    if (!JSZip) {
-      throw new Error("JSZip library not loaded. Please refresh the page and try again.");
-    }
-    
-    const zip = new JSZip();
-    
-    // Track filenames to avoid duplicates
-    const usedNames = new Set();
-    
-    for (const item of mediaFiles) {
-      // Validate blob before processing
-      if (!item?.blob || !(item.blob instanceof Blob) || item.blob.size === 0) {
-        console.warn(`[ChatBackup] Skipping invalid media file: ${item?.filename || 'unknown'}`);
-        continue;
+    try {
+      // Aguardar JSZip carregar com polling (máximo 10 segundos)
+      let JSZip = window.JSZip;
+      let attempts = 0;
+      const maxAttempts = 100;
+      
+      while (!JSZip && attempts < maxAttempts) {
+        await new Promise(r => setTimeout(r, 100));
+        JSZip = window.JSZip;
+        attempts++;
+        if (attempts % 10 === 0) {
+          console.log(`[ChatBackup] Waiting for JSZip... attempt ${attempts}`);
+        }
       }
       
-      const { blob, filename } = item;
-      let finalName = filename;
-      let counter = 1;
-      
-      // Handle duplicate filenames
-      while (usedNames.has(finalName)) {
-        const parts = filename.split('.');
-        const ext = parts.length > 1 ? parts.pop() : '';
-        const base = parts.join('.');
-        finalName = ext ? `${base}_${counter}.${ext}` : `${base}_${counter}`;
-        counter++;
+      if (!JSZip) {
+        throw new Error("JSZip library not loaded after 10 seconds. Please refresh the page.");
       }
       
-      usedNames.add(finalName);
-      zip.file(finalName, blob);
+      console.log('[ChatBackup] JSZip found, creating ZIP...');
+      
+      const zip = new JSZip();
+      
+      // Track filenames to avoid duplicates
+      const usedNames = new Set();
+      
+      for (const item of mediaFiles) {
+        // Validate blob before processing
+        if (!item?.blob || !(item.blob instanceof Blob) || item.blob.size === 0) {
+          console.warn(`[ChatBackup] Skipping invalid media file: ${item?.filename || 'unknown'}`);
+          continue;
+        }
+        
+        const { blob, filename } = item;
+        let finalName = filename;
+        let counter = 1;
+        
+        // Handle duplicate filenames
+        while (usedNames.has(finalName)) {
+          const parts = filename.split('.');
+          const ext = parts.length > 1 ? parts.pop() : '';
+          const base = parts.join('.');
+          finalName = ext ? `${base}_${counter}.${ext}` : `${base}_${counter}`;
+          counter++;
+        }
+        
+        usedNames.add(finalName);
+        zip.file(finalName, blob);
+      }
+      
+      emit('zipProgress', { zipName, status: 'generating' });
+      const zipBlob = await zip.generateAsync({ 
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      });
+      
+      return { blob: zipBlob, filename: zipName };
+    } catch (e) {
+      console.error(`[ChatBackup] Error creating ZIP:`, e);
+      throw e;
     }
-    
-    emit('zipProgress', { zipName, status: 'generating' });
-    const zipBlob = await zip.generateAsync({ 
-      type: 'blob',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 }
-    });
-    
-    return { blob: zipBlob, filename: zipName };
   }
 
   // Export functions for bridge access

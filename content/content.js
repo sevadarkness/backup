@@ -17,18 +17,9 @@
 
   // Inject extractor.js once
   function inject() {
-    // Inject JSZip into MAIN world FIRST
     const jszipId = "__chatbackup_jszip__";
-    if (!document.getElementById(jszipId)) {
-      const jszip = document.createElement("script");
-      jszip.id = jszipId;
-      jszip.src = chrome.runtime.getURL("libs/jszip.min.js");
-      // NÃO remover - precisa ficar no MAIN world para extractor.js usar
-      (document.head || document.documentElement).appendChild(jszip);
-    }
     
-    // Inject extractor.js DEPOIS do JSZip (com delay para garantir carregamento)
-    setTimeout(() => {
+    const injectExtractor = () => {
       const extractorId = "__chatbackup_extractor__";
       if (!document.getElementById(extractorId)) {
         const s = document.createElement("script");
@@ -37,7 +28,24 @@
         s.onload = () => s.remove();
         (document.head || document.documentElement).appendChild(s);
       }
-    }, 150);
+    };
+    
+    if (!document.getElementById(jszipId)) {
+      const jszip = document.createElement("script");
+      jszip.id = jszipId;
+      jszip.src = chrome.runtime.getURL("libs/jszip.min.js");
+      jszip.onload = () => {
+        console.log('[ChatBackup] JSZip loaded in MAIN world');
+        injectExtractor();
+      };
+      jszip.onerror = () => {
+        console.error('[ChatBackup] Failed to load JSZip, trying extractor anyway');
+        injectExtractor();
+      };
+      (document.head || document.documentElement).appendChild(jszip);
+    } else {
+      injectExtractor();
+    }
   }
 
   inject();
