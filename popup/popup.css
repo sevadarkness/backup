@@ -51,3 +51,14 @@
 .btn.secondary:hover{background:rgba(255,255,255,.14)}
 .input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px;margin-top:8px;box-sizing:border-box;background:#0b121c;color:var(--text);outline:none}
 .input::placeholder{color:var(--muted)}
+.media-progress-container{margin-top:12px;padding:12px;background:rgba(0,128,105,.1);border-radius:8px;border:1px solid rgba(0,128,105,.2)}
+.media-progress-title{font-weight:600;margin-bottom:10px;color:#00a884}
+.media-progress-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px}
+.media-progress-row:last-child{margin-bottom:0}
+.media-icon{font-size:16px;width:24px;text-align:center}
+.media-label{width:80px;color:#97a8c0}
+.media-bar-container{flex:1;height:8px;background:rgba(0,0,0,.1);border-radius:4px;overflow:hidden}
+.media-bar{height:100%;background:linear-gradient(90deg,#00a884,#25d366);border-radius:4px;transition:width .3s ease;width:0%}
+.media-bar.has-failed{background:linear-gradient(90deg,#00a884,#f59e0b)}
+.media-count{width:70px;text-align:right;font-family:monospace;font-size:12px;color:#97a8c0}
+.media-count .failed{color:#f59e0b;font-size:11px}

@@ -16,7 +16,7 @@
           <div class="subtitle">Backup do WhatsApp Web</div>
         </div>
       </div>
-      <div class="version">v1.6.1</div>
+      <div class="version">v1.6.2</div>
     </header>
 
     <div id="status" class="status">
@@ -129,6 +129,37 @@
         </div>
         <div class="bar"><div id="barFill" class="fill"></div></div>
         <div class="progressBottom"><span id="progDetail">—</span></div>
+      </div>
+
+      <div id="mediaProgressContainer" class="media-progress-container" style="display: none;">
+        <div class="media-progress-title">📊 Progresso de Mídias:</div>
+        
+        <div id="imageProgress" class="media-progress-row" style="display: none;">
+          <span class="media-icon">🖼️</span>
+          <span class="media-label">Imagens:</span>
+          <div class="media-bar-container">
+            <div class="media-bar" id="imageBar"></div>
+          </div>
+          <span class="media-count" id="imageCount">0/0</span>
+        </div>
+        
+        <div id="audioProgress" class="media-progress-row" style="display: none;">
+          <span class="media-icon">🎵</span>
+          <span class="media-label">Áudios:</span>
+          <div class="media-bar-container">
+            <div class="media-bar" id="audioBar"></div>
+          </div>
+          <span class="media-count" id="audioCount">0/0</span>
+        </div>
+        
+        <div id="docProgress" class="media-progress-row" style="display: none;">
+          <span class="media-icon">📎</span>
+          <span class="media-label">Documentos:</span>
+          <div class="media-bar-container">
+            <div class="media-bar" id="docBar"></div>
+          </div>
+          <span class="media-count" id="docCount">0/0</span>
+        </div>
       </div>
 
       <div class="hint">
