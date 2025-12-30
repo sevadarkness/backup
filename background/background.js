@@ -70,6 +70,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     }
 
+    if (msg.action === "getContacts") {
+      (async () => {
+        const tabId = await getActiveTabId();
+        const ping = await pingTab(tabId);
+        if (!ping.ok) {
+          sendResponse({ success: false, error: "Abra o WhatsApp Web (web.whatsapp.com) e recarregue a página." });
+          return;
+        }
+        
+        chrome.tabs.sendMessage(tabId, { action: "getContacts" }, (resp) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse(resp || { success: false, error: "No response" });
+          }
+        });
+      })();
+      return true;
+    }
+
     sendResponse({ success: false, error: "unknown_action" });
     return true;
   } catch (e) {

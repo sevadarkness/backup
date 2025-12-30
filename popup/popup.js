@@ -38,6 +38,19 @@ const progPct = el("progPct");
 const progStatus = el("progStatus");
 const progDetail = el("progDetail");
 
+// Contact selector elements
+const btnLoadContacts = el("btnLoadContacts");
+const contactsContainer = el("contactsContainer");
+const searchContacts = el("searchContacts");
+const contactsList = el("contactsList");
+const selectedContact = el("selectedContact");
+const selectedIcon = el("selectedIcon");
+const selectedName = el("selectedName");
+const btnClearSelection = el("btnClearSelection");
+
+let allContacts = [];
+let selectedChatId = null;
+
 let exporting = false;
 
 // Salvar configurações
@@ -170,6 +183,99 @@ async function refreshUI() {
   }
 }
 
+// Contact selector functions
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderContacts(contacts) {
+  contactsList.innerHTML = contacts.map(c => `
+    <div class="contact-item ${c.id === selectedChatId ? 'selected' : ''}" data-id="${c.id}">
+      <span class="icon">${c.isGroup ? '👥' : '👤'}</span>
+      <span class="name">${escapeHtml(c.name)}</span>
+    </div>
+  `).join('');
+  
+  // Adicionar event listeners
+  contactsList.querySelectorAll('.contact-item').forEach(item => {
+    item.addEventListener('click', () => selectContact(item.dataset.id));
+  });
+}
+
+function selectContact(chatId) {
+  const contact = allContacts.find(c => c.id === chatId);
+  if (!contact) return;
+  
+  selectedChatId = chatId;
+  selectedIcon.textContent = contact.isGroup ? '👥' : '👤';
+  selectedName.textContent = contact.name;
+  selectedContact.classList.remove("hidden");
+  
+  // Atualizar visual da lista
+  contactsList.querySelectorAll('.contact-item').forEach(item => {
+    item.classList.toggle('selected', item.dataset.id === chatId);
+  });
+  
+  // Atualizar chatCard também
+  chatCard.classList.remove("hidden");
+  chatName.textContent = contact.name;
+  chatMeta.textContent = contact.isGroup ? "👥 Grupo" : "👤 Conversa";
+  
+  // Hide photo if using selector (don't have photo data)
+  chatPhoto.style.display = "none";
+  chatIcon.style.display = "block";
+  chatIcon.textContent = contact.isGroup ? '👥' : '👤';
+}
+
+// Carregar contatos
+btnLoadContacts.addEventListener("click", async () => {
+  btnLoadContacts.disabled = true;
+  btnLoadContacts.textContent = "⏳ Carregando...";
+  
+  try {
+    const chk = await checkActiveWhatsApp();
+    if (!chk.ok) {
+      alert("Abra o WhatsApp Web primeiro!");
+      return;
+    }
+    
+    const res = await chrome.runtime.sendMessage({ action: "getContacts" });
+    if (res?.success && res.contacts) {
+      allContacts = res.contacts;
+      renderContacts(allContacts);
+      contactsContainer.classList.remove("hidden");
+    } else {
+      alert("Falha ao carregar contatos: " + (res?.error || "Erro desconhecido"));
+    }
+  } finally {
+    btnLoadContacts.disabled = false;
+    btnLoadContacts.textContent = "🔄 Carregar Contatos";
+  }
+});
+
+// Limpar seleção
+btnClearSelection.addEventListener("click", () => {
+  selectedChatId = null;
+  selectedContact.classList.add("hidden");
+  contactsList.querySelectorAll('.contact-item').forEach(item => {
+    item.classList.remove('selected');
+  });
+});
+
+// Busca/Filtro
+searchContacts.addEventListener("input", (e) => {
+  const query = e.target.value.toLowerCase();
+  const filtered = allContacts.filter(c => 
+    c.name.toLowerCase().includes(query)
+  );
+  renderContacts(filtered);
+});
+
 btnExport.addEventListener("click", async () => {
   if (exporting) return;
   exporting = true;
@@ -183,7 +289,8 @@ btnExport.addEventListener("click", async () => {
     includeTimestamps: !!incTs.checked,
     includeSender: !!incSender.checked,
     dateFrom: dateFrom.value || null,
-    dateTo: dateTo.value || null
+    dateTo: dateTo.value || null,
+    chatId: selectedChatId || null
   };
 
   // Salvar configurações antes de iniciar

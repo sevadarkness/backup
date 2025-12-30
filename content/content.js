@@ -143,6 +143,7 @@
     setCancel(cancel) { return this.request("setCancel", { cancel: !!cancel }, 4000); }
     getActiveChatMessages(opts, timeoutMs) { return this.request("getActiveChatMessages", opts || {}, timeoutMs || 300000); }
     getChatInfo() { return this.request("getChatInfo", {}, 8000); }
+    getContacts() { return this.request("getContacts", {}, 30000); }
   }
 
   let cancelRequested = false;
@@ -210,6 +211,17 @@
         sendResponse({ started: true });
         return true;
       }
+      if (msg.action === "getContacts") {
+        (async () => {
+          try {
+            const contacts = await bridge.request("getContacts", {}, 30000);
+            sendResponse(contacts);
+          } catch (e) {
+            sendResponse({ success: false, error: String(e?.message || e) });
+          }
+        })();
+        return true;
+      }
     } catch (e) {
       sendResponse({ error: String(e?.message || e) });
       return true;
@@ -244,7 +256,7 @@
 
       chrome.runtime.sendMessage({ type: "progress", current: 0, total: wantAll ? hardCap : (limit || 0), percent: 2, status: "Buscando mensagens (API interna)..." });
 
-      const wa = await bridge.getActiveChatMessages({ limit, maxLoads, delayMs }, wantAll ? 360000 : 120000);
+      const wa = await bridge.getActiveChatMessages({ limit, maxLoads, delayMs, chatId: settings.chatId || null }, wantAll ? 360000 : 120000);
       if (!wa?.ok || !Array.isArray(wa.messages) || wa.messages.length === 0) {
         throw new Error("Falha ao obter mensagens via API interna. Abra a conversa e tente novamente.");
       }

@@ -16,7 +16,7 @@
           <div class="subtitle">Backup do WhatsApp Web</div>
         </div>
       </div>
-      <div class="version">v1.4.3</div>
+      <div class="version">v1.5.0</div>
     </header>
 
     <div id="status" class="status">
@@ -26,6 +26,26 @@
 
     <div id="wrongPage" class="alert hidden">
       ⚠️ Abra <b>web.whatsapp.com</b> (aba ativa) e recarregue a página.
+    </div>
+
+    <div class="card">
+      <div class="cardTitle">📇 Selecionar Conversa</div>
+      
+      <button id="btnLoadContacts" class="btn secondary">🔄 Carregar Contatos</button>
+      
+      <div id="contactsContainer" class="hidden">
+        <input type="text" id="searchContacts" class="input" placeholder="🔍 Buscar contato ou grupo...">
+        
+        <div id="contactsList" class="contacts-list">
+          <!-- Lista será preenchida dinamicamente -->
+        </div>
+      </div>
+      
+      <div id="selectedContact" class="selected-contact hidden">
+        <span id="selectedIcon">👤</span>
+        <span id="selectedName">Nenhum selecionado</span>
+        <button id="btnClearSelection" class="btn-clear">✕</button>
+      </div>
     </div>
 
     <div id="chatCard" class="card hidden">

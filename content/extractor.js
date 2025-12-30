@@ -103,6 +103,33 @@
     };
   }
 
+  async function getAllContacts() {
+    try {
+      const CC = getChatCollection();
+      if (!CC) return { success: false, error: "ChatCollection not available" };
+      
+      const chats = CC.getModelsArray?.() || CC.models || [];
+      
+      const contacts = chats
+        .filter(chat => chat?.id?._serialized) // Filtrar chats válidos
+        .map(chat => {
+          const info = getChatInfo(chat);
+          return {
+            id: chat.id._serialized,
+            name: info?.name || chat.id._serialized,
+            isGroup: info?.isGroup || false,
+            unreadCount: chat.unreadCount || chat.__x_unreadCount || 0,
+            lastMessageTime: chat.t || chat.__x_t || 0
+          };
+        })
+        .sort((a, b) => b.lastMessageTime - a.lastMessageTime); // Ordenar por mais recente
+      
+      return { success: true, contacts };
+    } catch (e) {
+      return { success: false, error: String(e?.message || e) };
+    }
+  }
+
   function getMsgsArray(chat) {
     const msgs = chat?.msgs || chat?.msgCollection || chat?.__x_msgs || null;
     if (!msgs) return [];
@@ -199,8 +226,20 @@
   }
 
   async function getActiveChatMessages(opts) {
-    const chat = getActiveChat();
-    if (!chat) return { ok: false, error: "no_active_chat" };
+    const CC = getChatCollection();
+    if (!CC) return { ok: false, error: "ChatCollection not available" };
+    
+    let chat;
+    if (opts?.chatId) {
+      // Se chatId fornecido, buscar esse chat específico
+      const chats = CC.getModelsArray?.() || CC.models || [];
+      chat = chats.find(c => c?.id?._serialized === opts.chatId);
+      if (!chat) return { ok: false, error: "Chat não encontrado" };
+    } else {
+      // Se não, usar o chat ativo
+      chat = getActiveChat();
+      if (!chat) return { ok: false, error: "no_active_chat" };
+    }
 
     const hardCap = 100000;
     const wantAll = (opts?.limit === -1 || opts?.limit === Infinity);
@@ -316,6 +355,12 @@
         const chat = getActiveChat();
         const info = getChatInfo(chat);
         reply(true, info);
+        return;
+      }
+
+      if (data.action === "getContacts") {
+        const res = await getAllContacts();
+        reply(res.success, res.success ? res : null, res.success ? null : res.error);
         return;
       }
 

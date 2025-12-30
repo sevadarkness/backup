@@ -1,4 +1,10 @@
-# ChatBackup v1.4.3
+# ChatBackup v1.5.0
+
+## Novidades da versão 1.5.0
+- 📇 **Seletor de Contatos**: Agora é possível carregar todos os contatos/chats e exportar sem precisar abrir o chat no WhatsApp
+- 🔍 **Busca de Contatos**: Campo de busca para filtrar contatos por nome
+- 👥 **Diferenciação Visual**: Ícones diferentes para grupos (👥) e contatos (👤)
+- ⏱️ **Ordenação Inteligente**: Conversas ordenadas por mensagem mais recente
 
 ## Novidades da versão 1.4.3
 - 🔧 **Simplificação**: Removida funcionalidade de download de mídias (não estava funcionando corretamente)
