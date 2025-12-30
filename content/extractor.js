@@ -590,12 +590,13 @@
             }
             
             // Fallback ONLY if downloadAndMaybeDecrypt failed AND we have a direct URL
-            if (!blob && msg.deprecatedMms3Url) {
+            if (!blob && msg?.deprecatedMms3Url) {
               try {
                 blob = await downloadAndDecryptMedia(msg);
               } catch (e) {
                 // Log but don't fail - some media just can't be downloaded
-                console.warn(`[ChatBackup] Manual decryption also failed for ${msg.type}:`, e?.message);
+                const msgId = msg.id || msg.t || 'unknown';
+                console.warn(`[ChatBackup] Manual decryption also failed for ${msg.type} (ID: ${msgId}):`, e?.message);
               }
             }
             
