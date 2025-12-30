@@ -160,8 +160,6 @@
     const maxLoads = Math.min(Number(opts?.maxLoads) || (wantAll ? 5000 : 500), 8000);
     const delayMs = Math.min(Math.max(Number(opts?.delayMs) || (wantAll ? 900 : 650), 150), 2000);
 
-    let prevLen = -1;
-
     emit("waLoadProgress", { phase: "start", target, maxLoads });
 
     for (let i = 0; i < maxLoads; i++) {
@@ -193,9 +191,6 @@
         console.log("[ChatBackup] No more messages to load. Total:", afterLen);
         break;
       }
-
-      // Track for next iteration
-      prevLen = afterLen;
     }
 
     const arr = getMsgsArray(chat);
