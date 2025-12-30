@@ -519,7 +519,7 @@
           text: m.text,
           isOutgoing: m.isOutgoing,
           type: m.media?.type || 'chat',
-          mediaBase64: m.media?.dataUrl || null,
+          mediaBase64: m.media?.dataUrl || null,  // Full data URL including mime type
           mimetype: m.media?.mimetype || null,
           fileName: m.media?.fileName || null
         })),
