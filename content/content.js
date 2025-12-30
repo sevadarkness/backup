@@ -144,6 +144,7 @@
     getActiveChatMessages(opts, timeoutMs) { return this.request("getActiveChatMessages", opts || {}, timeoutMs || 300000); }
     getChatInfo() { return this.request("getChatInfo", {}, 8000); }
     getContacts() { return this.request("getContacts", {}, 30000); }
+    getChatInfoById(chatId) { return this.request("getChatInfoById", { chatId }, 10000); }
   }
 
   let cancelRequested = false;
@@ -238,8 +239,34 @@
     document.documentElement.classList.add("chatbackup-exporting");
 
     try {
-      const chat = detectCurrentChat();
-      if (!chat) throw new Error("Abra uma conversa (clique em um chat) antes de exportar.");
+      let chat = null;
+      
+      // Se temos um chatId do seletor, buscar info do chat via bridge
+      if (settings.chatId) {
+        try {
+          const chatInfo = await bridge.getChatInfoById(settings.chatId);
+          if (chatInfo?.ok && chatInfo.chat) {
+            chat = {
+              name: chatInfo.chat.name,
+              isGroup: chatInfo.chat.isGroup,
+              avatar: chatInfo.chat.profilePic || null
+            };
+          }
+        } catch (e) {
+          console.error("[ChatBackup] Erro ao buscar info do chat:", e);
+        }
+      }
+      
+      // Se não temos chatId ou falhou, tentar detectar chat aberto
+      if (!chat) {
+        chat = detectCurrentChat();
+      }
+      
+      // Se ainda não temos chat, erro
+      if (!chat) {
+        throw new Error("Selecione um contato da lista ou abra uma conversa antes de exportar.");
+      }
+      
       currentChatCache = chat;
       chrome.runtime.sendMessage({ type: "chatUpdate", chat });
 

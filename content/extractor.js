@@ -225,6 +225,33 @@
     }
   }
 
+  async function getChatInfoById(chatId) {
+    try {
+      const CC = getChatCollection();
+      if (!CC) return { ok: false, error: "ChatCollection not available" };
+      
+      const chats = CC.getModelsArray?.() || CC.models || [];
+      const chat = chats.find(c => c?.id?._serialized === chatId);
+      
+      if (!chat) {
+        return { ok: false, error: "Chat não encontrado" };
+      }
+      
+      const info = getChatInfo(chat);
+      
+      return {
+        ok: true,
+        chat: {
+          name: info?.name || chatId,
+          isGroup: info?.isGroup || false,
+          profilePic: info?.profilePic || null
+        }
+      };
+    } catch (e) {
+      return { ok: false, error: String(e?.message || e) };
+    }
+  }
+
   async function getActiveChatMessages(opts) {
     const CC = getChatCollection();
     if (!CC) return { ok: false, error: "ChatCollection not available" };
@@ -361,6 +388,12 @@
       if (data.action === "getContacts") {
         const res = await getAllContacts();
         reply(res.success, res.success ? res : null, res.success ? null : res.error);
+        return;
+      }
+
+      if (data.action === "getChatInfoById") {
+        const res = await getChatInfoById(data.payload?.chatId);
+        reply(res.ok, res.ok ? res : null, res.ok ? null : res.error);
         return;
       }
 
