@@ -331,29 +331,28 @@
             exportDocs: settings.exportDocs
           });
           
+          // Helper function to create and download ZIP
+          const createAndDownloadZip = async (mediaFiles, type, label, percent) => {
+            if (mediaFiles && mediaFiles.length > 0) {
+              chrome.runtime.sendMessage({ type: "progress", percent, status: `Gerando ZIP de ${label}... (${mediaFiles.length} arquivos)` });
+              const zipResult = await bridge.createMediaZip(mediaFiles, `${base}_${type}.zip`);
+              if (zipResult) {
+                await downloadBlob(zipResult.blob, zipResult.filename);
+              }
+            }
+          };
+          
           // Create and download ZIPs for each media type
-          if (settings.exportImages && mediaResults.images && mediaResults.images.length > 0) {
-            chrome.runtime.sendMessage({ type: "progress", percent: 92, status: `Gerando ZIP de imagens... (${mediaResults.images.length} arquivos)` });
-            const zipResult = await bridge.createMediaZip(mediaResults.images, `${base}_imagens.zip`);
-            if (zipResult) {
-              await downloadBlob(zipResult.blob, zipResult.filename);
-            }
+          if (settings.exportImages) {
+            await createAndDownloadZip(mediaResults.images, 'imagens', 'imagens', 92);
           }
           
-          if (settings.exportAudios && mediaResults.audios && mediaResults.audios.length > 0) {
-            chrome.runtime.sendMessage({ type: "progress", percent: 94, status: `Gerando ZIP de áudios... (${mediaResults.audios.length} arquivos)` });
-            const zipResult = await bridge.createMediaZip(mediaResults.audios, `${base}_audios.zip`);
-            if (zipResult) {
-              await downloadBlob(zipResult.blob, zipResult.filename);
-            }
+          if (settings.exportAudios) {
+            await createAndDownloadZip(mediaResults.audios, 'audios', 'áudios', 94);
           }
           
-          if (settings.exportDocs && mediaResults.docs && mediaResults.docs.length > 0) {
-            chrome.runtime.sendMessage({ type: "progress", percent: 96, status: `Gerando ZIP de documentos... (${mediaResults.docs.length} arquivos)` });
-            const zipResult = await bridge.createMediaZip(mediaResults.docs, `${base}_docs.zip`);
-            if (zipResult) {
-              await downloadBlob(zipResult.blob, zipResult.filename);
-            }
+          if (settings.exportDocs) {
+            await createAndDownloadZip(mediaResults.docs, 'docs', 'documentos', 96);
           }
         } catch (e) {
           console.error("[ChatBackup] Erro ao processar mídias:", e);

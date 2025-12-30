@@ -399,8 +399,8 @@
       
       const type = msg.type || 'chat';
       
-      // Check if message has media
-      if (!msg.hasMedia && !msg.mediaKey) continue;
+      // Check if message has media - mediaKey is the most reliable indicator
+      if (!msg.mediaKey) continue;
       
       if (exportImages && (type === 'image' || type === 'sticker')) {
         mediaGroups.images.push(msg);
@@ -422,14 +422,17 @@
         chunks.push(group.slice(i, i + concurrencyLimit));
       }
       
+      let processedCount = 0;
+      
       for (const chunk of chunks) {
         if (window.__CHATBACKUP_CANCEL__) break;
         
         const promises = chunk.map(async (msg, idx) => {
           try {
+            processedCount++;
             emit('mediaProgress', {
               groupName,
-              current: results[groupName].length + 1,
+              current: processedCount,
               total: group.length
             });
             
@@ -460,7 +463,8 @@
               return { blob, filename };
             }
           } catch (e) {
-            console.error(`[ChatBackup] Erro ao baixar mídia ${groupName}:`, e?.message || e);
+            const msgId = msg.id || msg.t || 'unknown';
+            console.error(`[ChatBackup] Erro ao baixar mídia ${groupName} (ID: ${msgId}):`, e?.message || e);
           }
           return null;
         });
@@ -501,7 +505,7 @@
     // Load JSZip from global scope (should be loaded in manifest)
     const JSZip = window.JSZip;
     if (!JSZip) {
-      console.error("[ChatBackup] JSZip not available");
+      console.error("[ChatBackup] JSZip library not loaded. Please refresh the page and try again.");
       return null;
     }
     
