@@ -25,7 +25,15 @@
   }
 
   function loadModules() {
-    const want = ["WAWebChatCollection", "WAWebCmd"];
+    const want = [
+      "WAWebChatCollection",
+      "WAWebCmd",
+      "WAWebMsgCollection",
+      "WAWebChatLoadMessages",
+      "WAWebDownloadManager",
+      "WAWebContactCollection",
+      "WAWebGroupMetadataCollection"
+    ];
     let found = 0;
     for (const n of want) {
       const mod = tryRequire(n);
@@ -184,6 +192,19 @@
       sender: pickSenderName(m),
       text: pickText(m),
       type: pickType(m),
+      // Extended properties for better media handling
+      from: m?.__x_from?._serialized || m?.from?._serialized || null,
+      to: m?.__x_to?._serialized || m?.to?._serialized || null,
+      author: m?.__x_author?._serialized || m?.author?._serialized || null,
+      ack: m?.__x_ack ?? m?.ack ?? null,
+      caption: m?.__x_caption || m?.caption || null,
+      mimetype: m?.__x_mimetype || m?.mimetype || null,
+      size: m?.__x_size || m?.size || null,
+      mediaKey: m?.__x_mediaKey || m?.mediaKey || null,
+      directPath: m?.__x_directPath || m?.directPath || null,
+      filehash: m?.__x_filehash || m?.filehash || null,
+      encFilehash: m?.__x_encFilehash || m?.encFilehash || null,
+      hasMedia: !!(m?.__x_mediaKey || m?.mediaKey || m?.mediaData || m?.__x_mediaData)
     }));
 
     // keep media-only too (text empty but type != chat)
@@ -224,7 +245,36 @@
     const msg = findMsgById(chat, String(payload?.msgId || ""));
     if (!msg) return { ok: false, error: "msg_not_found" };
 
-    // only attempt if method exists
+    // Try WAWebDownloadManager first (if available)
+    try {
+      const DLManager = state.modules.WAWebDownloadManager?.downloadManager || 
+                       state.modules.WAWebDownloadManager?.default?.downloadManager;
+      if (DLManager && typeof DLManager.downloadAndMaybeDecrypt === "function") {
+        const mediaInfo = {
+          directPath: msg?.__x_directPath || msg?.directPath,
+          mediaKey: msg?.__x_mediaKey || msg?.mediaKey,
+          type: msg?.__x_type || msg?.type,
+          mimetype: msg?.__x_mimetype || msg?.mimetype,
+          filehash: msg?.__x_filehash || msg?.filehash,
+          encFilehash: msg?.__x_encFilehash || msg?.encFilehash,
+          size: msg?.__x_size || msg?.size
+        };
+        
+        // Only try if we have necessary info
+        if (mediaInfo.mediaKey && mediaInfo.directPath) {
+          const blob = await DLManager.downloadAndMaybeDecrypt(mediaInfo);
+          if (blob instanceof Blob) {
+            const dataUrl = await blobToDataUrl(blob);
+            return { ok: true, dataUrl, mime: blob.type || mediaInfo.mimetype || "" };
+          }
+        }
+      }
+    } catch (e) {
+      // Fall through to other methods
+      console.debug("[ChatBackup] WAWebDownloadManager failed:", e?.message || e);
+    }
+
+    // Try msg.downloadMedia() 
     try {
       if (typeof msg.downloadMedia === "function") {
         const res = await msg.downloadMedia();
@@ -243,7 +293,9 @@
           }
         }
       }
-    } catch {}
+    } catch (e) {
+      console.debug("[ChatBackup] downloadMedia failed:", e?.message || e);
+    }
 
     // fallback: mediaData.downloadMedia()
     try {
@@ -254,7 +306,9 @@
           return { ok: true, dataUrl, mime: blob.type || "" };
         }
       }
-    } catch {}
+    } catch (e) {
+      console.debug("[ChatBackup] mediaData.downloadMedia failed:", e?.message || e);
+    }
 
     return { ok: false, error: "download_failed" };
   }

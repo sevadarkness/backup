@@ -263,15 +263,37 @@
     return new Blob([arr], { type: mime });
   }
 
-  function extFromMime(mime) {
+  function extFromMime(mime, mediaType) {
     const m = String(mime || "").toLowerCase();
+    // Images
     if (m.includes("png")) return "png";
     if (m.includes("webp")) return "webp";
     if (m.includes("gif")) return "gif";
+    if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+    // Videos
     if (m.includes("mp4")) return "mp4";
+    if (m.includes("webm")) return "webm";
+    if (m.includes("3gpp")) return "3gp";
+    // Audio
     if (m.includes("ogg")) return "ogg";
+    if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+    if (m.includes("opus")) return "opus";
+    if (m.includes("aac")) return "aac";
+    // Documents
     if (m.includes("pdf")) return "pdf";
-    return "jpg";
+    if (m.includes("msword") || m.includes("doc")) return "doc";
+    if (m.includes("spreadsheet") || m.includes("xls")) return "xls";
+    if (m.includes("presentation") || m.includes("ppt")) return "ppt";
+    if (m.includes("zip")) return "zip";
+    if (m.includes("rar")) return "rar";
+    
+    // Fallback based on media type
+    if (mediaType === "video") return "mp4";
+    if (mediaType === "audio" || mediaType === "ptt") return "ogg";
+    if (mediaType === "document") return "pdf";
+    if (mediaType === "image" || mediaType === "sticker") return "jpg";
+    
+    return "bin";
   }
 
   async function downloadBlob(blob, fileName) {
@@ -285,8 +307,12 @@
   }
 
   async function processImages(messages, settings, chat) {
-    // Only for image/sticker in this build (best reliability).
-    const list = messages.filter(m => m.media && (m.media.type === "image" || m.media.type === "sticker") && m.media.msgId);
+    // Support image, sticker, video, audio, ptt (voice messages), document
+    const list = messages.filter(m => m.media && 
+      (m.media.type === "image" || m.media.type === "sticker" || 
+       m.media.type === "video" || m.media.type === "audio" || 
+       m.media.type === "ptt" || m.media.type === "document") && 
+      m.media.msgId);
     if (!list.length) return;
 
     const wantFiles = !!settings.downloadMediaFiles;
@@ -303,7 +329,7 @@
 
       const msg = work[i];
       const pct = 88 + Math.round((i / Math.max(work.length, 1)) * 5);
-      chrome.runtime.sendMessage({ type: "progress", current: i + 1, total: work.length, percent: Math.min(pct, 93), status: `Baixando imagens... (${i+1}/${work.length})` });
+      chrome.runtime.sendMessage({ type: "progress", current: i + 1, total: work.length, percent: Math.min(pct, 93), status: `Baixando mídias... (${i+1}/${work.length})` });
 
       let res = null;
       try {
@@ -313,14 +339,14 @@
       }
 
       if (res?.ok && res.dataUrl) {
-        const mime = res.mime || (String(res.dataUrl).match(/^data:([^;]+);/i)?.[1]) || "image/jpeg";
-        const ext = extFromMime(mime);
+        const mime = res.mime || (String(res.dataUrl).match(/^data:([^;]+);/i)?.[1]) || "application/octet-stream";
+        const ext = extFromMime(mime, msg.media.type);
         const baseName = sanitizeFilename(`${chat.name}_${i+1}`);
         const fileName = `${baseName}_${msg.media.msgId}.${ext}`;
         msg.media.fileName = fileName;
 
-        // inline for HTML if size budget allows
-        if (wantInline) {
+        // inline for HTML if size budget allows and is image/video
+        if (wantInline && (msg.media.type === "image" || msg.media.type === "sticker" || msg.media.type === "video")) {
           const approx = String(res.dataUrl).length * 0.75;
           if (inlineTotal + approx <= MAX_INLINE_TOTAL) {
             msg.media.dataUrl = res.dataUrl;
@@ -423,7 +449,15 @@
       let mediaHTML = "";
       if (settings.includeMedia && m.media) {
         if (m.media.dataUrl) {
-          mediaHTML = `<img class="img" src="${m.media.dataUrl}" alt="imagem" />`;
+          const safeDataUrl = escHTML(m.media.dataUrl);
+          const safeMime = escHTML(m.media.mime || '');
+          if (m.media.type === "video") {
+            mediaHTML = `<video class="video" controls><source src="${safeDataUrl}" type="${safeMime || 'video/mp4'}">Seu navegador não suporta vídeo.</video>`;
+          } else if (m.media.type === "audio" || m.media.type === "ptt") {
+            mediaHTML = `<audio class="audio" controls><source src="${safeDataUrl}" type="${safeMime || 'audio/ogg'}">Seu navegador não suporta áudio.</audio>`;
+          } else {
+            mediaHTML = `<img class="img" src="${safeDataUrl}" alt="imagem" />`;
+          }
         } else {
           const label = m.media.failed ? `${m.media.type} (falhou)` : m.media.type;
           const fn = m.media.fileName ? ` — ${escHTML(m.media.fileName)}` : "";
@@ -461,6 +495,8 @@
     .time{font-size:11px;color:#667781;text-align:right;margin-top:6px}
     .media{font-size:12px;color:#5a6b79;background:rgba(0,0,0,.05);padding:8px;border-radius:8px;margin-top:8px}
     .img{max-width:100%;border-radius:10px;margin-top:8px}
+    .video{max-width:100%;border-radius:10px;margin-top:8px}
+    .audio{width:100%;margin-top:8px}
     .foot{margin-top:12px;text-align:center;color:#667781;font-size:12px}
   </style>
 </head>
