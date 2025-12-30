@@ -17,50 +17,29 @@
 
   // Inject extractor.js once
   function inject() {
-    const extractorId = "__chatbackup_extractor__";
-    if (!document.getElementById(extractorId)) {
-      const s = document.createElement("script");
-      s.id = extractorId;
-      s.src = chrome.runtime.getURL("content/extractor.js");
-      s.onload = () => s.remove();
-      (document.head || document.documentElement).appendChild(s);
-    }
-    
-    // Inject JSZip library
+    // Inject JSZip into MAIN world FIRST
     const jszipId = "__chatbackup_jszip__";
     if (!document.getElementById(jszipId)) {
       const jszip = document.createElement("script");
       jszip.id = jszipId;
       jszip.src = chrome.runtime.getURL("libs/jszip.min.js");
-      jszip.onload = () => jszip.remove();
+      // NÃO remover - precisa ficar no MAIN world para extractor.js usar
       (document.head || document.documentElement).appendChild(jszip);
     }
-  }
-  
-  // Ensure JSZip is loaded before using
-  function injectJSZip() {
-    return new Promise((resolve, reject) => {
-      // Check if already loaded
-      if (typeof window.JSZip !== 'undefined') {
-        console.log('[ChatBackup] JSZip already loaded');
-        resolve();
-        return;
+    
+    // Inject extractor.js DEPOIS do JSZip (com delay para garantir carregamento)
+    setTimeout(() => {
+      const extractorId = "__chatbackup_extractor__";
+      if (!document.getElementById(extractorId)) {
+        const s = document.createElement("script");
+        s.id = extractorId;
+        s.src = chrome.runtime.getURL("content/extractor.js");
+        s.onload = () => s.remove();
+        (document.head || document.documentElement).appendChild(s);
       }
-      
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL('libs/jszip.min.js');
-      script.onload = () => {
-        console.log('[ChatBackup] JSZip loaded successfully');
-        resolve();
-      };
-      script.onerror = (e) => {
-        console.error('[ChatBackup] Failed to load JSZip:', e);
-        reject(new Error('Failed to load JSZip'));
-      };
-      (document.head || document.documentElement).appendChild(script);
-    });
+    }, 150);
   }
-  
+
   inject();
 
   function isVisible(el) {
@@ -401,13 +380,6 @@
       // Check if we need to download media
       if (settings.exportImages || settings.exportAudios || settings.exportDocs) {
         chrome.runtime.sendMessage({ type: "progress", percent: 50, status: "Preparando download de mídias..." });
-        
-        // Ensure JSZip is loaded before attempting media export
-        try {
-          await injectJSZip();
-        } catch (e) {
-          throw new Error("Falha ao carregar biblioteca JSZip. Recarregue a página e tente novamente.");
-        }
         
         try {
           const mediaResults = await bridge.downloadMediaForExport(wa.messages, {
