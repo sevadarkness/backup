@@ -89,6 +89,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true;
     }
+    
+    // Mostrar notificação do sistema quando exportação completar
+    if (msg.type === "complete") {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'assets/icon128.png',
+        title: 'ChatBackup - Exportação Concluída',
+        message: `✅ ${msg.count} mensagens exportadas com sucesso!`,
+        priority: 2
+      });
+    }
+    
+    if (msg.type === "error") {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'assets/icon128.png',
+        title: 'ChatBackup - Erro',
+        message: `❌ ${msg.error}`,
+        priority: 2
+      });
+    }
 
     sendResponse({ success: false, error: "unknown_action" });
     return true;
