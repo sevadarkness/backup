@@ -1,5 +1,19 @@
 const el = (id) => document.getElementById(id);
 
+// Chaves para localStorage
+const STORAGE_KEYS = {
+  FORMAT: 'chatbackup_format',
+  LIMIT: 'chatbackup_limit',
+  INC_TS: 'chatbackup_inc_ts',
+  INC_SENDER: 'chatbackup_inc_sender',
+  INC_MEDIA: 'chatbackup_inc_media',
+  DL_MEDIA: 'chatbackup_dl_media',
+  DATE_FROM: 'chatbackup_date_from',
+  DATE_TO: 'chatbackup_date_to',
+  LAST_CHAT: 'chatbackup_last_chat',
+  EXPORT_PROGRESS: 'chatbackup_export_progress'
+};
+
 const dot = el("dot");
 const statusText = el("statusText");
 const wrongPage = el("wrongPage");
@@ -29,6 +43,72 @@ const progStatus = el("progStatus");
 const progDetail = el("progDetail");
 
 let exporting = false;
+
+// Salvar configurações
+function saveSettings() {
+  localStorage.setItem(STORAGE_KEYS.FORMAT, format.value);
+  localStorage.setItem(STORAGE_KEYS.LIMIT, limit.value);
+  localStorage.setItem(STORAGE_KEYS.INC_TS, incTs.checked);
+  localStorage.setItem(STORAGE_KEYS.INC_SENDER, incSender.checked);
+  localStorage.setItem(STORAGE_KEYS.INC_MEDIA, incMedia.checked);
+  localStorage.setItem(STORAGE_KEYS.DL_MEDIA, dlMedia.checked);
+  
+  if (dateFrom) localStorage.setItem(STORAGE_KEYS.DATE_FROM, dateFrom.value);
+  if (dateTo) localStorage.setItem(STORAGE_KEYS.DATE_TO, dateTo.value);
+}
+
+// Carregar configurações
+function loadSettings() {
+  const savedFormat = localStorage.getItem(STORAGE_KEYS.FORMAT);
+  const savedLimit = localStorage.getItem(STORAGE_KEYS.LIMIT);
+  const savedIncTs = localStorage.getItem(STORAGE_KEYS.INC_TS);
+  const savedIncSender = localStorage.getItem(STORAGE_KEYS.INC_SENDER);
+  const savedIncMedia = localStorage.getItem(STORAGE_KEYS.INC_MEDIA);
+  const savedDlMedia = localStorage.getItem(STORAGE_KEYS.DL_MEDIA);
+  const savedDateFrom = localStorage.getItem(STORAGE_KEYS.DATE_FROM);
+  const savedDateTo = localStorage.getItem(STORAGE_KEYS.DATE_TO);
+  
+  if (savedFormat) format.value = savedFormat;
+  if (savedLimit) limit.value = savedLimit;
+  if (savedIncTs !== null) incTs.checked = savedIncTs === 'true';
+  if (savedIncSender !== null) incSender.checked = savedIncSender === 'true';
+  if (savedIncMedia !== null) incMedia.checked = savedIncMedia === 'true';
+  if (savedDlMedia !== null) dlMedia.checked = savedDlMedia === 'true';
+  
+  if (dateFrom && savedDateFrom) dateFrom.value = savedDateFrom;
+  if (dateTo && savedDateTo) dateTo.value = savedDateTo;
+}
+
+// Salvar progresso da exportação
+function saveExportProgress(progress) {
+  localStorage.setItem(STORAGE_KEYS.EXPORT_PROGRESS, JSON.stringify({
+    ...progress,
+    timestamp: Date.now()
+  }));
+}
+
+// Carregar progresso da exportação (se ainda válido - menos de 5 minutos)
+function loadExportProgress() {
+  const saved = localStorage.getItem(STORAGE_KEYS.EXPORT_PROGRESS);
+  if (!saved) return null;
+  
+  try {
+    const progress = JSON.parse(saved);
+    // Válido por 5 minutos
+    if (Date.now() - progress.timestamp > 5 * 60 * 1000) {
+      localStorage.removeItem(STORAGE_KEYS.EXPORT_PROGRESS);
+      return null;
+    }
+    return progress;
+  } catch {
+    return null;
+  }
+}
+
+// Limpar progresso após conclusão
+function clearExportProgress() {
+  localStorage.removeItem(STORAGE_KEYS.EXPORT_PROGRESS);
+}
 
 function setDot(state) { dot.className = "dot " + state; }
 function showProgress(show) {
@@ -118,11 +198,15 @@ btnExport.addEventListener("click", async () => {
     dateTo: dateTo.value || null
   };
 
+  // Salvar configurações antes de iniciar
+  saveSettings();
+
   const res = await chrome.runtime.sendMessage({ action: "startBackup", settings });
   if (!res?.success) {
     exporting = false;
     btnExport.disabled = false;
     showProgress(false);
+    clearExportProgress();
     alert("❌ " + (res?.error || "Falha ao iniciar"));
   }
 });
@@ -132,14 +216,19 @@ btnCancel.addEventListener("click", async () => {
   exporting = false;
   btnExport.disabled = false;
   showProgress(false);
+  clearExportProgress();
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "progress") updateProgress(msg);
+  if (msg.type === "progress") {
+    updateProgress(msg);
+    saveExportProgress(msg);
+  }
   if (msg.type === "complete") {
     exporting = false;
     btnExport.disabled = false;
     showProgress(false);
+    clearExportProgress();
     alert(`✅ Exportação concluída! ${msg.count} mensagens.`);
     refreshUI();
   }
@@ -147,6 +236,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     exporting = false;
     btnExport.disabled = false;
     showProgress(false);
+    clearExportProgress();
     alert("❌ " + msg.error);
     refreshUI();
   }
@@ -168,6 +258,26 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Carregar configurações salvas
+  loadSettings();
+  
+  // Adicionar listeners para salvar automaticamente
+  format.addEventListener('change', saveSettings);
+  limit.addEventListener('change', saveSettings);
+  incTs.addEventListener('change', saveSettings);
+  incSender.addEventListener('change', saveSettings);
+  incMedia.addEventListener('change', saveSettings);
+  dlMedia.addEventListener('change', saveSettings);
+  if (dateFrom) dateFrom.addEventListener('change', saveSettings);
+  if (dateTo) dateTo.addEventListener('change', saveSettings);
+  
+  // Verificar se há exportação em andamento
+  const savedProgress = loadExportProgress();
+  if (savedProgress && savedProgress.percent < 100) {
+    showProgress(true);
+    updateProgress(savedProgress);
+  }
+  
   await refreshUI();
   setInterval(() => { if (!exporting) refreshUI(); }, 2500);
 });

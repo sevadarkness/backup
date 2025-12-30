@@ -12,8 +12,10 @@
 
   const SEL = {
     SIDE: "#pane-side",
-    HEADER: 'header[data-testid="conversation-header"], #main header',
-    HEADER_TITLE: '#main header span[title], header[data-testid="conversation-header"] span[title]',
+    HEADER: '#main header, header[data-testid="conversation-header"]',
+    HEADER_TITLE: '#main header span[dir="auto"], #main header span[title], [data-testid="conversation-title"]',
+    HEADER_SUBTITLE: '#main header span[title] + span, [data-testid="conversation-info-header-chat-subtitle"]',
+    AVATAR: '#main header img[draggable="false"], [data-testid="conversation-panel-header"] img',
     QR: 'canvas[aria-label*="QR"], [data-ref="qr-code"], [data-testid="qrcode"], [data-testid="qrcode-canvas"]'
   };
 
@@ -47,17 +49,33 @@
   }
 
   function detectCurrentChat() {
-    const header = document.querySelector(SEL.HEADER);
+    // Try multiple selectors for header
+    const header = document.querySelector('#main header') || 
+                   document.querySelector('[data-testid="conversation-header"]');
     if (!header) return null;
-    const titleEl = header.querySelector('span[title]') || document.querySelector(SEL.HEADER_TITLE);
-    const name = titleEl?.getAttribute("title") || titleEl?.textContent || "";
+    
+    // Buscar nome em vários lugares possíveis
+    const titleEl = header.querySelector('span[dir="auto"]') ||
+                    header.querySelector('span[title]') ||
+                    header.querySelector('[data-testid="conversation-title"]');
+    
+    const name = titleEl?.getAttribute("title") || 
+                 titleEl?.textContent?.trim() || 
+                 "";
+    
     if (!name) return null;
 
-    const subtitle = header.querySelector('[data-testid="conversation-info-header-chat-subtitle"]');
-    const isGroup = !!(subtitle?.textContent?.includes(","));
+    // Detectar se é grupo
+    const subtitle = header.querySelector('span[title] + span') ||
+                     header.querySelector('[data-testid="conversation-info-header-chat-subtitle"]');
+    const isGroup = subtitle?.textContent?.includes(",") || 
+                    subtitle?.textContent?.includes("participantes") ||
+                    subtitle?.textContent?.includes("participants");
     
-    // Try to get avatar from header image
-    const avatar = header.querySelector("img")?.src || null;
+    // Buscar avatar com múltiplos seletores
+    const avatarEl = header.querySelector('img[draggable="false"]') ||
+                     header.querySelector('img');
+    const avatar = avatarEl?.src || null;
 
     return { name, isGroup, avatar };
   }
