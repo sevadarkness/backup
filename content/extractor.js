@@ -659,24 +659,7 @@
       
       try {
         // Aguardar JSZip carregar com polling (máximo 10 segundos)
-        let JSZip = window.JSZip;
-        let attempts = 0;
-        const maxAttempts = 100;
-        
-        while (!JSZip && attempts < maxAttempts) {
-          await new Promise(r => setTimeout(r, 100));
-          JSZip = window.JSZip;
-          attempts++;
-          if (attempts % 10 === 0) {
-            console.log(`[ChatBackup] Waiting for JSZip... attempt ${attempts}`);
-          }
-        }
-        
-        if (!JSZip) {
-          throw new Error("JSZip library not loaded after 10 seconds. Please refresh the page.");
-        }
-        
-        console.log('[ChatBackup] JSZip found, creating ZIP...');
+        const JSZip = await waitForJSZip();
         
         const zip = new JSZip();
         const usedNames = new Set();
@@ -745,29 +728,35 @@
     return String(name || "file").replace(/[<>:"/\\|?*]/g, "_").replace(/\s+/g, "_").slice(0, 180);
   }
 
+  // Helper function to wait for JSZip to load with polling
+  async function waitForJSZip() {
+    let JSZip = window.JSZip;
+    let attempts = 0;
+    const maxAttempts = 100; // 100 * 100ms = 10 seconds
+    
+    while (!JSZip && attempts < maxAttempts) {
+      await new Promise(r => setTimeout(r, 100));
+      JSZip = window.JSZip;
+      attempts++;
+      if (attempts % 10 === 0) {
+        console.log(`[ChatBackup] Waiting for JSZip... attempt ${attempts}`);
+      }
+    }
+    
+    if (!JSZip) {
+      throw new Error("JSZip library not loaded after 10 seconds. Please refresh the page.");
+    }
+    
+    console.log('[ChatBackup] JSZip found, creating ZIP...');
+    return JSZip;
+  }
+
   async function createMediaZip(mediaFiles, zipName) {
     if (!mediaFiles || mediaFiles.length === 0) return null;
     
     try {
       // Aguardar JSZip carregar com polling (máximo 10 segundos)
-      let JSZip = window.JSZip;
-      let attempts = 0;
-      const maxAttempts = 100;
-      
-      while (!JSZip && attempts < maxAttempts) {
-        await new Promise(r => setTimeout(r, 100));
-        JSZip = window.JSZip;
-        attempts++;
-        if (attempts % 10 === 0) {
-          console.log(`[ChatBackup] Waiting for JSZip... attempt ${attempts}`);
-        }
-      }
-      
-      if (!JSZip) {
-        throw new Error("JSZip library not loaded after 10 seconds. Please refresh the page.");
-      }
-      
-      console.log('[ChatBackup] JSZip found, creating ZIP...');
+      const JSZip = await waitForJSZip();
       
       const zip = new JSZip();
       
