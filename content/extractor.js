@@ -93,7 +93,18 @@
   }
 
   async function tryLoadEarlier(chat) {
-    // Many builds expose one of these
+    // Try WAWebChatLoadMessages first (most reliable method from problem statement)
+    try {
+      const ChatLoadMessages = state.modules.WAWebChatLoadMessages;
+      if (ChatLoadMessages?.loadEarlierMsgs) {
+        const result = await ChatLoadMessages.loadEarlierMsgs(chat);
+        return result;
+      }
+    } catch (e) {
+      console.debug("[ChatBackup] WAWebChatLoadMessages failed:", e?.message || e);
+    }
+
+    // Fallback: try other methods
     const fns = [
       chat?.loadEarlierMsgs,
       chat?.msgs?.loadEarlierMsgs,
@@ -150,37 +161,41 @@
     const delayMs = Math.min(Math.max(Number(opts?.delayMs) || (wantAll ? 900 : 650), 150), 2000);
 
     let prevLen = -1;
-    let stable = 0;
 
     emit("waLoadProgress", { phase: "start", target, maxLoads });
 
     for (let i = 0; i < maxLoads; i++) {
       if (window.__CHATBACKUP_CANCEL__) break;
 
-      const arr = getMsgsArray(chat);
-      const len = arr.length;
+      const beforeLen = getMsgsArray(chat).length;
 
-      emit("waLoadProgress", { phase: "tick", attempt: i + 1, loaded: len, target, maxLoads });
+      emit("waLoadProgress", { phase: "tick", attempt: i + 1, loaded: beforeLen, target, maxLoads });
 
-      if (len >= target) break;
+      // Check if we've reached target or no more messages available
+      if (beforeLen >= target) break;
       if (noMoreState(chat)) break;
 
-      if (len == prevLen) stable++;
-      else stable = 0;
-      prevLen = len;
-
-      if (stable >= 4) {
-        uiNudgeScrollTop();
-        await new Promise(r => setTimeout(r, delayMs));
-        stable = 0;
-        continue;
+      // Try to load earlier messages
+      try {
+        await tryLoadEarlier(chat);
+      } catch (e) {
+        console.warn("[ChatBackup] Error loading earlier messages:", e?.message || e);
       }
 
-      const ok = await tryLoadEarlier(chat);
+      // Nudge UI and wait
       uiNudgeScrollTop();
       await new Promise(r => setTimeout(r, delayMs));
 
-      if (!ok && stable >= 2) break;
+      const afterLen = getMsgsArray(chat).length;
+
+      // If no new messages were loaded, we've reached the end
+      if (afterLen === beforeLen) {
+        console.log("[ChatBackup] No more messages to load. Total:", afterLen);
+        break;
+      }
+
+      // Track for next iteration
+      prevLen = afterLen;
     }
 
     const arr = getMsgsArray(chat);
