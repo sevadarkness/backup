@@ -141,6 +141,52 @@ function updateProgress({ current=0, total=0, percent=0, status="" }) {
   progDetail.textContent = total ? `${current} / ${total}` : `${current}`;
 }
 
+function updateMediaProgress(data) {
+  const container = el('mediaProgressContainer');
+  container.style.display = 'block';
+  
+  // Atualizar cada tipo
+  if (data.images) {
+    updateProgressRow('image', data.images);
+  }
+  if (data.audios) {
+    updateProgressRow('audio', data.audios);
+  }
+  if (data.docs) {
+    updateProgressRow('doc', data.docs);
+  }
+}
+
+function updateProgressRow(type, info) {
+  const row = el(`${type}Progress`);
+  const bar = el(`${type}Bar`);
+  const count = el(`${type}Count`);
+  
+  if (info.total > 0) {
+    row.style.display = 'flex';
+    const percent = Math.round((info.current / info.total) * 100);
+    bar.style.width = `${percent}%`;
+    
+    if (info.failed > 0) {
+      bar.classList.add('has-failed');
+      count.innerHTML = `${info.current - info.failed}/${info.total} <span class="failed">(${info.failed}❌)</span>`;
+    } else {
+      bar.classList.remove('has-failed');
+      count.textContent = `${info.current}/${info.total}`;
+    }
+  }
+}
+
+function hideMediaProgress() {
+  const container = el('mediaProgressContainer');
+  container.style.display = 'none';
+  // Reset all rows
+  ['image', 'audio', 'doc'].forEach(type => {
+    const row = el(`${type}Progress`);
+    row.style.display = 'none';
+  });
+}
+
 async function checkActiveWhatsApp() {
   setDot("loading");
   statusText.textContent = "Verificando…";
@@ -338,10 +384,14 @@ chrome.runtime.onMessage.addListener((msg) => {
     updateProgress(msg);
     saveExportProgress(msg);
   }
+  if (msg.type === "mediaProgressDetailed") {
+    updateMediaProgress(msg.data);
+  }
   if (msg.type === "complete") {
     exporting = false;
     btnExport.disabled = false;
     showProgress(false);
+    hideMediaProgress();
     clearExportProgress();
     alert(`✅ Exportação concluída! ${msg.count} mensagens.`);
     refreshUI();
@@ -350,6 +400,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     exporting = false;
     btnExport.disabled = false;
     showProgress(false);
+    hideMediaProgress();
     clearExportProgress();
     alert("❌ " + msg.error);
     refreshUI();

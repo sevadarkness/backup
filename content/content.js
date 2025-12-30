@@ -41,6 +41,30 @@
     }
   }
   
+  // Ensure JSZip is loaded before using
+  function injectJSZip() {
+    return new Promise((resolve, reject) => {
+      // Check if already loaded
+      if (typeof window.JSZip !== 'undefined') {
+        console.log('[ChatBackup] JSZip already loaded');
+        resolve();
+        return;
+      }
+      
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('libs/jszip.min.js');
+      script.onload = () => {
+        console.log('[ChatBackup] JSZip loaded successfully');
+        resolve();
+      };
+      script.onerror = (e) => {
+        console.error('[ChatBackup] Failed to load JSZip:', e);
+        reject(new Error('Failed to load JSZip'));
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+  }
+  
   inject();
 
   function isVisible(el) {
@@ -164,6 +188,13 @@
   let exporting = false;
   let currentChatCache = null;
   let currentExportSettings = null;
+  
+  // Track detailed media progress state
+  const mediaProgressState = {
+    images: { current: 0, total: 0, failed: 0 },
+    audios: { current: 0, total: 0, failed: 0 },
+    docs: { current: 0, total: 0, failed: 0 }
+  };
 
   const bridge = new Bridge((type, payload) => {
     if (!exporting) return;
@@ -191,6 +222,25 @@
       const total = payload?.total ?? 0;
       const failed = payload?.failed ?? 0;
       const groupLabel = groupName === 'images' ? 'imagens' : groupName === 'audios' ? 'áudios' : 'documentos';
+      
+      // Update state
+      if (mediaProgressState[groupName]) {
+        mediaProgressState[groupName].current = current;
+        mediaProgressState[groupName].total = total;
+        mediaProgressState[groupName].failed = failed;
+        
+        // Send detailed progress to popup
+        chrome.runtime.sendMessage({ 
+          type: "mediaProgressDetailed", 
+          data: {
+            [groupName]: {
+              current: mediaProgressState[groupName].current,
+              total: mediaProgressState[groupName].total,
+              failed: mediaProgressState[groupName].failed
+            }
+          }
+        });
+      }
       
       // Calculate percentage based on media type
       let percent = 50;
@@ -280,6 +330,11 @@
     currentExportSettings = settings;
     await bridge.setCancel(false).catch(() => {});
     document.documentElement.classList.add("chatbackup-exporting");
+    
+    // Reset media progress state
+    mediaProgressState.images = { current: 0, total: 0, failed: 0 };
+    mediaProgressState.audios = { current: 0, total: 0, failed: 0 };
+    mediaProgressState.docs = { current: 0, total: 0, failed: 0 };
 
     try {
       let chat = null;
@@ -350,6 +405,13 @@
       // Check if we need to download media
       if (settings.exportImages || settings.exportAudios || settings.exportDocs) {
         chrome.runtime.sendMessage({ type: "progress", percent: 50, status: "Preparando download de mídias..." });
+        
+        // Ensure JSZip is loaded before attempting media export
+        try {
+          await injectJSZip();
+        } catch (e) {
+          throw new Error("Falha ao carregar biblioteca JSZip. Recarregue a página e tente novamente.");
+        }
         
         try {
           const mediaResults = await bridge.downloadMediaForExport(wa.messages, {
