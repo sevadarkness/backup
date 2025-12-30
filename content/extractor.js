@@ -585,7 +585,7 @@
                   blob = new Blob([arrayBuffer], { type: msg.mimetype || 'application/octet-stream' });
                 }
               } catch (e) {
-                console.debug(`[ChatBackup] downloadAndMaybeDecrypt failed for ${msg.type}:`, e?.message || e);
+                console.debug(`[ChatBackup] downloadAndMaybeDecrypt failed for ${msg?.type}:`, e?.message || e);
               }
             }
             
@@ -595,8 +595,8 @@
                 blob = await downloadAndDecryptMedia(msg);
               } catch (e) {
                 // Log but don't fail - some media just can't be downloaded
-                const msgId = msg.id || msg.t || 'unknown';
-                console.warn(`[ChatBackup] Manual decryption also failed for ${msg.type} (ID: ${msgId}):`, e?.message);
+                const msgId = msg?.id || msg?.t || 'unknown';
+                console.warn(`[ChatBackup] Manual decryption also failed for ${msg?.type} (ID: ${msgId}):`, e?.message);
               }
             }
             
