@@ -358,6 +358,9 @@
       'audio/mpeg': 'mp3',
       'audio/aac': 'aac',
       'video/mp4': 'mp4',
+      'video/webm': 'webm',
+      'video/3gpp': '3gp',
+      'video/quicktime': 'mov',
       'application/pdf': 'pdf',
       'application/zip': 'zip',
       'application/msword': 'doc',
@@ -370,6 +373,7 @@
     if (map[mimetype]) return map[mimetype];
     if (type === 'ptt' || type === 'audio') return 'ogg';
     if (type === 'image' || type === 'sticker') return 'webp';
+    if (type === 'video') return 'mp4';
     if (type === 'document') return 'bin';
     return 'bin';
   }
@@ -527,7 +531,7 @@
         continue; // Pular esta mídia - não tem como baixar
       }
       
-      if (exportImages && (type === 'image' || type === 'sticker')) {
+      if (exportImages && (type === 'image' || type === 'sticker' || type === 'video')) {
         mediaGroups.images.push(msg);
       } else if (exportAudios && (type === 'ptt' || type === 'audio')) {
         mediaGroups.audios.push(msg);
@@ -555,14 +559,6 @@
         
         const promises = chunk.map(async (msg) => {
           try {
-            processedCount++;
-            emit('mediaProgress', {
-              groupName,
-              current: processedCount,
-              total: group.length,
-              failed: failedCount
-            });
-            
             let blob = null;
             
             // Try WAWebDownloadManager first (fastest and most reliable method)
@@ -608,15 +604,37 @@
               const basename = msg.caption ? sanitizeFilename(msg.caption).slice(0, 50) : `${msg.type}_${timestamp}`;
               const filename = `${basename}.${ext}`;
               
+              // Increment AFTER success
+              processedCount++;
+              emit('mediaProgress', {
+                groupName,
+                current: processedCount,
+                total: group.length,
+                failed: failedCount
+              });
+              
               return { blob, filename };
             }
             
+            // Failed to download
             failedCount++;
+            emit('mediaProgress', {
+              groupName,
+              current: processedCount,
+              total: group.length,
+              failed: failedCount
+            });
             return null;
           } catch (e) {
             const msgId = msg.id || msg.t || 'unknown';
             console.error(`[ChatBackup] Error downloading media ${groupName} (ID: ${msgId}):`, e?.message || e);
             failedCount++;
+            emit('mediaProgress', {
+              groupName,
+              current: processedCount,
+              total: group.length,
+              failed: failedCount
+            });
             return null;
           }
         });
@@ -649,7 +667,80 @@
       await downloadWithLimit(mediaGroups.docs, 'docs');
     }
     
-    return results;
+    // Create ZIPs internally and return blob URLs instead of blob objects
+    const zipResults = { images: null, audios: null, docs: null };
+    
+    // Helper function to create ZIP internally and return blob URL
+    const createZipInternal = async (mediaFiles, zipName, groupName) => {
+      if (!mediaFiles || mediaFiles.length === 0) return null;
+      
+      try {
+        const JSZip = window.JSZip;
+        if (!JSZip) {
+          throw new Error("JSZip library not loaded. Please refresh the page and try again.");
+        }
+        
+        const zip = new JSZip();
+        const usedNames = new Set();
+        
+        for (const item of mediaFiles) {
+          // Validate blob before processing
+          if (!item?.blob || !(item.blob instanceof Blob) || item.blob.size === 0) {
+            console.warn(`[ChatBackup] Skipping invalid media file: ${item?.filename || 'unknown'}`);
+            continue;
+          }
+          
+          const { blob, filename } = item;
+          let finalName = filename;
+          let counter = 1;
+          
+          // Handle duplicate filenames
+          while (usedNames.has(finalName)) {
+            const parts = filename.split('.');
+            const ext = parts.length > 1 ? parts.pop() : '';
+            const base = parts.join('.');
+            finalName = ext ? `${base}_${counter}.${ext}` : `${base}_${counter}`;
+            counter++;
+          }
+          
+          usedNames.add(finalName);
+          zip.file(finalName, blob);
+        }
+        
+        emit('zipProgress', { zipName, status: 'generating' });
+        const zipBlob = await zip.generateAsync({ 
+          type: 'blob',
+          compression: 'DEFLATE',
+          compressionOptions: { level: 6 }
+        });
+        
+        // Create blob URL that can be passed via postMessage
+        const blobUrl = URL.createObjectURL(zipBlob);
+        
+        return { 
+          blobUrl, 
+          filename: zipName,
+          count: mediaFiles.length
+        };
+      } catch (e) {
+        console.error(`[ChatBackup] Error creating ZIP for ${groupName}:`, e);
+        return null;
+      }
+    };
+    
+    if (exportImages && results.images.length > 0) {
+      zipResults.images = await createZipInternal(results.images, 'images.zip', 'images');
+    }
+    
+    if (exportAudios && results.audios.length > 0) {
+      zipResults.audios = await createZipInternal(results.audios, 'audios.zip', 'audios');
+    }
+    
+    if (exportDocs && results.docs.length > 0) {
+      zipResults.docs = await createZipInternal(results.docs, 'docs.zip', 'docs');
+    }
+    
+    return zipResults;
   }
 
   function sanitizeFilename(name) {
@@ -662,8 +753,7 @@
     // Load JSZip from global scope (should be loaded in manifest)
     const JSZip = window.JSZip;
     if (!JSZip) {
-      console.error("[ChatBackup] JSZip library not loaded. Please refresh the page and try again.");
-      return null;
+      throw new Error("JSZip library not loaded. Please refresh the page and try again.");
     }
     
     const zip = new JSZip();
@@ -671,7 +761,14 @@
     // Track filenames to avoid duplicates
     const usedNames = new Set();
     
-    for (const { blob, filename } of mediaFiles) {
+    for (const item of mediaFiles) {
+      // Validate blob before processing
+      if (!item?.blob || !(item.blob instanceof Blob) || item.blob.size === 0) {
+        console.warn(`[ChatBackup] Skipping invalid media file: ${item?.filename || 'unknown'}`);
+        continue;
+      }
+      
+      const { blob, filename } = item;
       let finalName = filename;
       let counter = 1;
       

@@ -12,10 +12,6 @@
 
   const SEL = {
     SIDE: "#pane-side",
-    HEADER: '#main header, header[data-testid="conversation-header"]',
-    HEADER_TITLE: '#main header span[dir="auto"], #main header span[title], [data-testid="conversation-title"]',
-    HEADER_SUBTITLE: '#main header span[title] + span, [data-testid="conversation-info-header-chat-subtitle"]',
-    AVATAR: '#main header img[draggable="false"], [data-testid="conversation-panel-header"] img',
     QR: 'canvas[aria-label*="QR"], [data-ref="qr-code"], [data-testid="qrcode"], [data-testid="qrcode-canvas"]'
   };
 
@@ -420,28 +416,40 @@
             exportDocs: settings.exportDocs
           });
           
-          // Helper function to create and download ZIP
-          const createAndDownloadZip = async (mediaFiles, type, label, percent) => {
-            if (mediaFiles && mediaFiles.length > 0) {
-              chrome.runtime.sendMessage({ type: "progress", percent, status: `Gerando ZIP de ${label}... (${mediaFiles.length} arquivos)` });
-              const zipResult = await bridge.createMediaZip(mediaFiles, `${base}_${type}.zip`);
-              if (zipResult) {
-                await downloadBlob(zipResult.blob, zipResult.filename);
-              }
+          // Helper function to download from blob URL
+          const downloadFromBlobUrl = async (zipResult, type, label, percent) => {
+            if (zipResult?.blobUrl) {
+              chrome.runtime.sendMessage({ type: "progress", percent, status: `Baixando ZIP de ${label}... (${zipResult.count} arquivos)` });
+              
+              // Generate final filename with chat name
+              const finalFilename = `${base}_${type}.zip`;
+              
+              // Download using the blob URL directly
+              await new Promise((resolve) => {
+                chrome.runtime.sendMessage({ action: "download", url: zipResult.blobUrl, fileName: finalFilename }, () => {
+                  // Clean up the blob URL after download
+                  try {
+                    URL.revokeObjectURL(zipResult.blobUrl);
+                  } catch (e) {
+                    // Ignore cleanup errors
+                  }
+                  resolve();
+                });
+              });
             }
           };
           
-          // Create and download ZIPs for each media type with proper percentages
+          // Download ZIPs for each media type with proper percentages
           if (settings.exportImages) {
-            await createAndDownloadZip(mediaResults.images, 'imagens', 'imagens', 87);
+            await downloadFromBlobUrl(mediaResults.images, 'imagens', 'imagens', 87);
           }
           
           if (settings.exportAudios) {
-            await createAndDownloadZip(mediaResults.audios, 'audios', 'áudios', 90);
+            await downloadFromBlobUrl(mediaResults.audios, 'audios', 'áudios', 90);
           }
           
           if (settings.exportDocs) {
-            await createAndDownloadZip(mediaResults.docs, 'docs', 'documentos', 93);
+            await downloadFromBlobUrl(mediaResults.docs, 'docs', 'documentos', 93);
           }
         } catch (e) {
           console.error("[ChatBackup] Erro ao processar mídias:", e);
