@@ -449,12 +449,14 @@
       let mediaHTML = "";
       if (settings.includeMedia && m.media) {
         if (m.media.dataUrl) {
+          const safeDataUrl = escHTML(m.media.dataUrl);
+          const safeMime = escHTML(m.media.mime || '');
           if (m.media.type === "video") {
-            mediaHTML = `<video class="video" controls><source src="${m.media.dataUrl}" type="${m.media.mime || 'video/mp4'}">Seu navegador não suporta vídeo.</video>`;
+            mediaHTML = `<video class="video" controls><source src="${safeDataUrl}" type="${safeMime || 'video/mp4'}">Seu navegador não suporta vídeo.</video>`;
           } else if (m.media.type === "audio" || m.media.type === "ptt") {
-            mediaHTML = `<audio class="audio" controls><source src="${m.media.dataUrl}" type="${m.media.mime || 'audio/ogg'}">Seu navegador não suporta áudio.</audio>`;
+            mediaHTML = `<audio class="audio" controls><source src="${safeDataUrl}" type="${safeMime || 'audio/ogg'}">Seu navegador não suporta áudio.</audio>`;
           } else {
-            mediaHTML = `<img class="img" src="${m.media.dataUrl}" alt="imagem" />`;
+            mediaHTML = `<img class="img" src="${safeDataUrl}" alt="imagem" />`;
           }
         } else {
           const label = m.media.failed ? `${m.media.type} (falhou)` : m.media.type;
