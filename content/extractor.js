@@ -62,6 +62,9 @@
     const isGroup = !!(chat?.isGroup || chat?.__x_isGroup);
     
     // Try to get profile picture
+    // NOTE: These paths depend on WhatsApp Web's internal API structure
+    // and may break with future WhatsApp updates. Multiple fallback paths
+    // are provided to improve compatibility across different versions.
     let profilePic = null;
     try {
       profilePic = chat?.contact?.profilePicThumb?.__x_imgFull || 
@@ -72,6 +75,7 @@
                    chat?.groupMetadata?.profilePicThumb?.__x_img ||
                    null;
     } catch (e) {
+      // Fail silently - profile picture is optional
       profilePic = null;
     }
     

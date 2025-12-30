@@ -301,12 +301,18 @@
   function sanitizeFilename(name) {
     return String(name || "file").replace(/[<>:"/\\|?*]/g, "_").replace(/\s+/g, "_").slice(0, 180);
   }
+  
+  function extractMimeFromDataUrl(dataUrl) {
+    const parts = String(dataUrl).split(",");
+    const meta = parts[0] || "";
+    return (meta.match(/data:([^;]+);/i) || [])[1] || "application/octet-stream";
+  }
 
   function dataUrlToBlob(dataUrl) {
     const parts = String(dataUrl).split(",");
     const meta = parts[0] || "";
     const b64 = parts[1] || "";
-    const mime = (meta.match(/data:([^;]+);/i) || [])[1] || "application/octet-stream";
+    const mime = extractMimeFromDataUrl(dataUrl);
     const bin = atob(b64);
     const arr = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
@@ -479,11 +485,15 @@
       scriptEl.textContent = jsZipCode;
       document.head.appendChild(scriptEl);
       
-      // Wait a bit for JSZip to load
-      await new Promise(r => setTimeout(r, 100));
+      // Poll for JSZip to be available (more robust than fixed delay)
+      let attempts = 0;
+      while (typeof JSZip === 'undefined' && attempts < 50) {
+        await new Promise(r => setTimeout(r, 50));
+        attempts++;
+      }
       
       if (typeof JSZip === 'undefined') {
-        throw new Error('JSZip not loaded');
+        throw new Error('JSZip failed to load after timeout');
       }
       
       const zip = new JSZip();
@@ -495,9 +505,10 @@
       // Extract media files and add to ZIP
       for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
-        if (msg.media && msg.media.dataUrl) {
+        // Validate msg.id exists before processing
+        if (msg.media && msg.media.dataUrl && msg.id) {
           const base64Data = msg.media.dataUrl.split(',')[1];
-          const mime = msg.media.dataUrl.split(',')[0].match(/data:([^;]+);/)?.[1] || 'application/octet-stream';
+          const mime = extractMimeFromDataUrl(msg.media.dataUrl);
           const ext = extFromMime(mime, msg.media.type);
           const filename = msg.media.type + '_' + String(mediaIndex).padStart(3, '0') + '.' + ext;
           
