@@ -16,7 +16,7 @@
           <div class="subtitle">Backup do WhatsApp Web</div>
         </div>
       </div>
-      <div class="version">v1.5.0</div>
+      <div class="version">v1.6.0</div>
     </header>
 
     <div id="status" class="status">
@@ -97,7 +97,28 @@
 
       <label class="check"><input id="incTs" type="checkbox" checked /> Incluir data/hora</label>
       <label class="check"><input id="incSender" type="checkbox" checked /> Incluir remetente</label>
+    </div>
 
+    <div class="card">
+      <div class="cardTitle">📦 Exportar Mídias (opcional)</div>
+      
+      <label class="check">
+        <input type="checkbox" id="exportImages">
+        <span>🖼️ Imagens (ZIP separado)</span>
+      </label>
+      
+      <label class="check">
+        <input type="checkbox" id="exportAudios">
+        <span>🎵 Áudios (ZIP separado)</span>
+      </label>
+      
+      <label class="check">
+        <input type="checkbox" id="exportDocs">
+        <span>📎 Documentos (ZIP separado)</span>
+      </label>
+    </div>
+
+    <div class="card">
       <button id="btnExport" class="btn primary">Exportar conversa</button>
       <button id="btnCancel" class="btn ghost hidden">Cancelar</button>
 
