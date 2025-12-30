@@ -99,6 +99,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         message: `✅ ${msg.count} mensagens exportadas com sucesso!`,
         priority: 2
       });
+      currentJob = null; // Limpar job após conclusão
     }
     
     if (msg.type === "error") {
@@ -109,6 +110,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         message: `❌ ${msg.error}`,
         priority: 2
       });
+      currentJob = null; // Limpar job após erro
     }
 
     sendResponse({ success: false, error: "unknown_action" });
