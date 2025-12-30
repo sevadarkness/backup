@@ -214,6 +214,8 @@
       directPath: m?.__x_directPath || m?.directPath || null,
       filehash: m?.__x_filehash || m?.filehash || null,
       encFilehash: m?.__x_encFilehash || m?.encFilehash || null,
+      mediaKeyTimestamp: m?.__x_mediaKeyTimestamp || m?.mediaKeyTimestamp || null, // Used by downloadAndMaybeDecrypt
+      deprecatedMms3Url: m?.__x_deprecatedMms3Url || m?.deprecatedMms3Url || null, // Fallback direct CDN URL
       hasMedia: !!(m?.__x_mediaKey || m?.mediaKey || m?.mediaData || m?.__x_mediaData)
     }));
 
@@ -267,7 +269,8 @@
           mimetype: msg?.__x_mimetype || msg?.mimetype,
           filehash: msg?.__x_filehash || msg?.filehash,
           encFilehash: msg?.__x_encFilehash || msg?.encFilehash,
-          size: msg?.__x_size || msg?.size
+          size: msg?.__x_size || msg?.size,
+          mediaKeyTimestamp: msg?.__x_mediaKeyTimestamp || msg?.mediaKeyTimestamp
         };
         
         // Only try if we have necessary info
@@ -307,7 +310,7 @@
       console.debug("[ChatBackup] downloadMedia failed:", e?.message || e);
     }
 
-    // fallback: mediaData.downloadMedia()
+    // Fallback: mediaData.downloadMedia()
     try {
       if (msg.mediaData && typeof msg.mediaData.downloadMedia === "function") {
         const blob = await msg.mediaData.downloadMedia();
@@ -318,6 +321,35 @@
       }
     } catch (e) {
       console.debug("[ChatBackup] mediaData.downloadMedia failed:", e?.message || e);
+    }
+
+    // Fallback: Try mediaData.mediaBlob()
+    try {
+      const mediaData = msg?.__x_mediaData || msg?.mediaData;
+      if (mediaData && typeof mediaData.mediaBlob === "function") {
+        const blob = await mediaData.mediaBlob();
+        if (blob instanceof Blob) {
+          const dataUrl = await blobToDataUrl(blob);
+          return { ok: true, dataUrl, mime: blob.type || "" };
+        }
+      }
+    } catch (e) {
+      console.debug("[ChatBackup] mediaData.mediaBlob failed:", e?.message || e);
+    }
+
+    // Fallback: Try deprecatedMms3Url (direct URL)
+    try {
+      const url = msg?.__x_deprecatedMms3Url || msg?.deprecatedMms3Url;
+      if (url && typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"))) {
+        const response = await fetch(url);
+        if (response.ok) {
+          const blob = await response.blob();
+          const dataUrl = await blobToDataUrl(blob);
+          return { ok: true, dataUrl, mime: blob.type || msg?.__x_mimetype || msg?.mimetype || "" };
+        }
+      }
+    } catch (e) {
+      console.debug("[ChatBackup] deprecatedMms3Url fetch failed:", e?.message || e);
     }
 
     return { ok: false, error: "download_failed" };
