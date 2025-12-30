@@ -92,24 +92,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     
     // Mostrar notificação do sistema quando exportação completar
     if (msg.type === "complete") {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'assets/icon128.png',
-        title: 'ChatBackup - Exportação Concluída',
-        message: `✅ ${msg.count} mensagens exportadas com sucesso!`,
-        priority: 2
-      });
+      try {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('assets/icon128.png'),
+          title: 'ChatBackup - Exportação Concluída',
+          message: `✅ ${msg.count} mensagens exportadas com sucesso!`,
+          priority: 2
+        }, (notificationId) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[ChatBackup] Notification failed:', chrome.runtime.lastError.message);
+          }
+        });
+      } catch (e) {
+        console.warn('[ChatBackup] Could not create notification:', e);
+      }
       currentJob = null; // Limpar job após conclusão
     }
     
     if (msg.type === "error") {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'assets/icon128.png',
-        title: 'ChatBackup - Erro',
-        message: `❌ ${msg.error}`,
-        priority: 2
-      });
+      try {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('assets/icon128.png'),
+          title: 'ChatBackup - Erro',
+          message: `❌ ${msg.error}`,
+          priority: 2
+        }, (notificationId) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[ChatBackup] Notification failed:', chrome.runtime.lastError.message);
+          }
+        });
+      } catch (e) {
+        console.warn('[ChatBackup] Could not create notification:', e);
+      }
       currentJob = null; // Limpar job após erro
     }
 
