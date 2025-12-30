@@ -468,8 +468,18 @@
     const url = getMediaUrl(msg);
     const mediaKey = getMediaKey(msg);
     
-    if (!url || !mediaKey) {
-      throw new Error('URL ou mediaKey não disponível');
+    // Validação mais robusta
+    if (!url) {
+      throw new Error('URL de mídia não disponível - mídia pode não ter sido carregada');
+    }
+    
+    if (!mediaKey) {
+      throw new Error('mediaKey não disponível');
+    }
+    
+    // Verificar se URL é válida (não undefined/null convertido para string)
+    if (!url.startsWith('http')) {
+      throw new Error(`URL inválida: ${url}`);
     }
     
     // Download encrypted data
@@ -517,6 +527,14 @@
       
       // Check if message has media - mediaKey is the most reliable indicator
       if (!msg.mediaKey) continue;
+      
+      // NOVO: Verificar se tem URL disponível ANTES de adicionar à fila
+      const hasMediaUrl = getMediaUrl(msg) !== null;
+      
+      if (!hasMediaUrl) {
+        console.log(`[ChatBackup] Skipping ${type} without media URL (ID: ${msg.id || 'unknown'})`);
+        continue; // Pular esta mídia - não tem como baixar
+      }
       
       if (exportImages && (type === 'image' || type === 'sticker')) {
         mediaGroups.images.push(msg);
