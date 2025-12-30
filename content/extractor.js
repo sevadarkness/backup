@@ -345,6 +345,202 @@
     return { ok: true, messages: out, returned: out.length, target };
   }
 
+  function getExtensionFromMimetype(mimetype, type) {
+    const map = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+      'audio/ogg': 'ogg',
+      'audio/ogg; codecs=opus': 'ogg',
+      'audio/mp4': 'm4a',
+      'audio/mpeg': 'mp3',
+      'audio/aac': 'aac',
+      'video/mp4': 'mp4',
+      'application/pdf': 'pdf',
+      'application/zip': 'zip',
+      'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.ms-excel': 'xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'text/plain': 'txt'
+    };
+    
+    if (map[mimetype]) return map[mimetype];
+    if (type === 'ptt' || type === 'audio') return 'ogg';
+    if (type === 'image' || type === 'sticker') return 'webp';
+    if (type === 'document') return 'bin';
+    return 'bin';
+  }
+
+  async function downloadMediaForExport(messages, options = {}) {
+    const { exportImages, exportAudios, exportDocs } = options;
+    
+    if (!exportImages && !exportAudios && !exportDocs) {
+      return { images: [], audios: [], docs: [] };
+    }
+    
+    const dm = tryRequire('WAWebDownloadManager')?.downloadManager;
+    if (!dm) {
+      console.error("[ChatBackup] WAWebDownloadManager not available");
+      return { images: [], audios: [], docs: [] };
+    }
+    
+    const mediaGroups = {
+      images: [],  // type: image, sticker
+      audios: [],  // type: ptt, audio
+      docs: []     // type: document
+    };
+    
+    // Filtrar mensagens por tipo
+    for (const msg of messages) {
+      if (!msg || window.__CHATBACKUP_CANCEL__) break;
+      
+      const type = msg.type || 'chat';
+      
+      // Check if message has media
+      if (!msg.hasMedia && !msg.mediaKey) continue;
+      
+      if (exportImages && (type === 'image' || type === 'sticker')) {
+        mediaGroups.images.push(msg);
+      } else if (exportAudios && (type === 'ptt' || type === 'audio')) {
+        mediaGroups.audios.push(msg);
+      } else if (exportDocs && type === 'document') {
+        mediaGroups.docs.push(msg);
+      }
+    }
+    
+    const results = { images: [], audios: [], docs: [] };
+    
+    // Baixar cada grupo com controle de paralelismo
+    const downloadWithLimit = async (group, groupName) => {
+      const concurrencyLimit = 3;
+      const chunks = [];
+      
+      for (let i = 0; i < group.length; i += concurrencyLimit) {
+        chunks.push(group.slice(i, i + concurrencyLimit));
+      }
+      
+      for (const chunk of chunks) {
+        if (window.__CHATBACKUP_CANCEL__) break;
+        
+        const promises = chunk.map(async (msg, idx) => {
+          try {
+            emit('mediaProgress', {
+              groupName,
+              current: results[groupName].length + 1,
+              total: group.length
+            });
+            
+            // Prepare download params
+            const downloadParams = {
+              directPath: msg.directPath,
+              mediaKey: msg.mediaKey,
+              type: msg.type,
+              mimetype: msg.mimetype
+            };
+            
+            // Add optional params if they exist
+            if (msg.mediaKeyTimestamp) downloadParams.mediaKeyTimestamp = msg.mediaKeyTimestamp;
+            if (msg.encFilehash) downloadParams.encFilehash = msg.encFilehash;
+            if (msg.filehash) downloadParams.filehash = msg.filehash;
+            
+            const arrayBuffer = await dm.downloadAndMaybeDecrypt(downloadParams);
+            
+            if (arrayBuffer && arrayBuffer.byteLength > 0) {
+              const blob = new Blob([arrayBuffer], { type: msg.mimetype || 'application/octet-stream' });
+              const ext = getExtensionFromMimetype(msg.mimetype, msg.type);
+              
+              // Generate unique filename
+              const timestamp = msg.t || Date.now();
+              const basename = msg.caption ? sanitizeFilename(msg.caption).slice(0, 50) : `${msg.type}_${timestamp}`;
+              const filename = `${basename}.${ext}`;
+              
+              return { blob, filename };
+            }
+          } catch (e) {
+            console.error(`[ChatBackup] Erro ao baixar mídia ${groupName}:`, e?.message || e);
+          }
+          return null;
+        });
+        
+        const downloaded = await Promise.all(promises);
+        results[groupName].push(...downloaded.filter(f => f !== null));
+        
+        // Small delay between batches
+        if (chunks.indexOf(chunk) < chunks.length - 1) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+    };
+    
+    // Baixar cada tipo de mídia sequencialmente
+    if (exportImages && mediaGroups.images.length > 0) {
+      await downloadWithLimit(mediaGroups.images, 'images');
+    }
+    
+    if (exportAudios && mediaGroups.audios.length > 0) {
+      await downloadWithLimit(mediaGroups.audios, 'audios');
+    }
+    
+    if (exportDocs && mediaGroups.docs.length > 0) {
+      await downloadWithLimit(mediaGroups.docs, 'docs');
+    }
+    
+    return results;
+  }
+
+  function sanitizeFilename(name) {
+    return String(name || "file").replace(/[<>:"/\\|?*]/g, "_").replace(/\s+/g, "_").slice(0, 180);
+  }
+
+  async function createMediaZip(mediaFiles, zipName) {
+    if (!mediaFiles || mediaFiles.length === 0) return null;
+    
+    // Load JSZip from global scope (should be loaded in manifest)
+    const JSZip = window.JSZip;
+    if (!JSZip) {
+      console.error("[ChatBackup] JSZip not available");
+      return null;
+    }
+    
+    const zip = new JSZip();
+    
+    // Track filenames to avoid duplicates
+    const usedNames = new Set();
+    
+    for (const { blob, filename } of mediaFiles) {
+      let finalName = filename;
+      let counter = 1;
+      
+      // Handle duplicate filenames
+      while (usedNames.has(finalName)) {
+        const parts = filename.split('.');
+        const ext = parts.length > 1 ? parts.pop() : '';
+        const base = parts.join('.');
+        finalName = ext ? `${base}_${counter}.${ext}` : `${base}_${counter}`;
+        counter++;
+      }
+      
+      usedNames.add(finalName);
+      zip.file(finalName, blob);
+    }
+    
+    emit('zipProgress', { zipName, status: 'generating' });
+    const zipBlob = await zip.generateAsync({ 
+      type: 'blob',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 6 }
+    });
+    
+    return { blob: zipBlob, filename: zipName };
+  }
+
+  // Export functions for bridge access
+  window.__chatbackup_downloadMediaForExport = downloadMediaForExport;
+  window.__chatbackup_createMediaZip = createMediaZip;
+
   // bridge request handler
   window.addEventListener("message", async (event) => {
     try {
@@ -394,6 +590,18 @@
       if (data.action === "getChatInfoById") {
         const res = await getChatInfoById(data.payload?.chatId);
         reply(res.ok, res.ok ? res : null, res.ok ? null : res.error);
+        return;
+      }
+
+      if (data.action === "downloadMediaForExport") {
+        const res = await downloadMediaForExport(data.payload?.messages || [], data.payload?.options || {});
+        reply(true, res);
+        return;
+      }
+
+      if (data.action === "createMediaZip") {
+        const res = await createMediaZip(data.payload?.mediaFiles || [], data.payload?.zipName || 'media.zip');
+        reply(true, res);
         return;
       }
 

@@ -9,7 +9,10 @@ const STORAGE_KEYS = {
   DATE_FROM: 'chatbackup_date_from',
   DATE_TO: 'chatbackup_date_to',
   LAST_CHAT: 'chatbackup_last_chat',
-  EXPORT_PROGRESS: 'chatbackup_export_progress'
+  EXPORT_PROGRESS: 'chatbackup_export_progress',
+  EXPORT_IMAGES: 'chatbackup_export_images',
+  EXPORT_AUDIOS: 'chatbackup_export_audios',
+  EXPORT_DOCS: 'chatbackup_export_docs'
 };
 
 const dot = el("dot");
@@ -28,6 +31,10 @@ const dateFrom = el("dateFrom");
 const dateTo = el("dateTo");
 const incTs = el("incTs");
 const incSender = el("incSender");
+
+const exportImages = el("exportImages");
+const exportAudios = el("exportAudios");
+const exportDocs = el("exportDocs");
 
 const btnExport = el("btnExport");
 const btnCancel = el("btnCancel");
@@ -59,6 +66,9 @@ function saveSettings() {
   localStorage.setItem(STORAGE_KEYS.LIMIT, limit.value);
   localStorage.setItem(STORAGE_KEYS.INC_TS, incTs.checked);
   localStorage.setItem(STORAGE_KEYS.INC_SENDER, incSender.checked);
+  localStorage.setItem(STORAGE_KEYS.EXPORT_IMAGES, exportImages.checked);
+  localStorage.setItem(STORAGE_KEYS.EXPORT_AUDIOS, exportAudios.checked);
+  localStorage.setItem(STORAGE_KEYS.EXPORT_DOCS, exportDocs.checked);
   
   if (dateFrom) localStorage.setItem(STORAGE_KEYS.DATE_FROM, dateFrom.value);
   if (dateTo) localStorage.setItem(STORAGE_KEYS.DATE_TO, dateTo.value);
@@ -70,6 +80,9 @@ function loadSettings() {
   const savedLimit = localStorage.getItem(STORAGE_KEYS.LIMIT);
   const savedIncTs = localStorage.getItem(STORAGE_KEYS.INC_TS);
   const savedIncSender = localStorage.getItem(STORAGE_KEYS.INC_SENDER);
+  const savedExportImages = localStorage.getItem(STORAGE_KEYS.EXPORT_IMAGES);
+  const savedExportAudios = localStorage.getItem(STORAGE_KEYS.EXPORT_AUDIOS);
+  const savedExportDocs = localStorage.getItem(STORAGE_KEYS.EXPORT_DOCS);
   const savedDateFrom = localStorage.getItem(STORAGE_KEYS.DATE_FROM);
   const savedDateTo = localStorage.getItem(STORAGE_KEYS.DATE_TO);
   
@@ -77,6 +90,9 @@ function loadSettings() {
   if (savedLimit) limit.value = savedLimit;
   if (savedIncTs !== null) incTs.checked = savedIncTs === 'true';
   if (savedIncSender !== null) incSender.checked = savedIncSender === 'true';
+  if (savedExportImages !== null) exportImages.checked = savedExportImages === 'true';
+  if (savedExportAudios !== null) exportAudios.checked = savedExportAudios === 'true';
+  if (savedExportDocs !== null) exportDocs.checked = savedExportDocs === 'true';
   
   if (dateFrom && savedDateFrom) dateFrom.value = savedDateFrom;
   if (dateTo && savedDateTo) dateTo.value = savedDateTo;
@@ -290,7 +306,10 @@ btnExport.addEventListener("click", async () => {
     includeSender: !!incSender.checked,
     dateFrom: dateFrom.value || null,
     dateTo: dateTo.value || null,
-    chatId: selectedChatId || null
+    chatId: selectedChatId || null,
+    exportImages: !!exportImages.checked,
+    exportAudios: !!exportAudios.checked,
+    exportDocs: !!exportDocs.checked
   };
 
   // Salvar configurações antes de iniciar
@@ -361,6 +380,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   limit.addEventListener('change', saveSettings);
   incTs.addEventListener('change', saveSettings);
   incSender.addEventListener('change', saveSettings);
+  exportImages.addEventListener('change', saveSettings);
+  exportAudios.addEventListener('change', saveSettings);
+  exportDocs.addEventListener('change', saveSettings);
   if (dateFrom) dateFrom.addEventListener('change', saveSettings);
   if (dateTo) dateTo.addEventListener('change', saveSettings);
   

@@ -21,13 +21,24 @@
 
   // Inject extractor.js once
   function inject() {
-    const id = "__chatbackup_extractor__";
-    if (document.getElementById(id)) return;
-    const s = document.createElement("script");
-    s.id = id;
-    s.src = chrome.runtime.getURL("content/extractor.js");
-    s.onload = () => s.remove();
-    (document.head || document.documentElement).appendChild(s);
+    const extractorId = "__chatbackup_extractor__";
+    if (!document.getElementById(extractorId)) {
+      const s = document.createElement("script");
+      s.id = extractorId;
+      s.src = chrome.runtime.getURL("content/extractor.js");
+      s.onload = () => s.remove();
+      (document.head || document.documentElement).appendChild(s);
+    }
+    
+    // Inject JSZip library
+    const jszipId = "__chatbackup_jszip__";
+    if (!document.getElementById(jszipId)) {
+      const jszip = document.createElement("script");
+      jszip.id = jszipId;
+      jszip.src = chrome.runtime.getURL("libs/jszip.min.js");
+      jszip.onload = () => jszip.remove();
+      (document.head || document.documentElement).appendChild(jszip);
+    }
   }
   
   inject();
@@ -145,6 +156,8 @@
     getChatInfo() { return this.request("getChatInfo", {}, 8000); }
     getContacts() { return this.request("getContacts", {}, 30000); }
     getChatInfoById(chatId) { return this.request("getChatInfoById", { chatId }, 10000); }
+    downloadMediaForExport(messages, options) { return this.request("downloadMediaForExport", { messages, options }, 600000); }
+    createMediaZip(mediaFiles, zipName) { return this.request("createMediaZip", { mediaFiles, zipName }, 120000); }
   }
 
   let cancelRequested = false;
@@ -166,6 +179,17 @@
         percent = 85;
       }
       chrome.runtime.sendMessage({ type: "progress", current: loaded, total: target, percent, status: `Carregando histórico... (${loaded} msgs)` });
+    }
+    if (type === "mediaProgress") {
+      const groupName = payload?.groupName || 'media';
+      const current = payload?.current ?? 0;
+      const total = payload?.total ?? 0;
+      const groupLabel = groupName === 'images' ? 'imagens' : groupName === 'audios' ? 'áudios' : 'documentos';
+      chrome.runtime.sendMessage({ type: "progress", current, total, percent: 88, status: `Baixando ${groupLabel}... (${current}/${total})` });
+    }
+    if (type === "zipProgress") {
+      const zipName = payload?.zipName || 'media';
+      chrome.runtime.sendMessage({ type: "progress", percent: 95, status: `Gerando ZIP: ${zipName}` });
     }
   });
 
@@ -289,9 +313,53 @@
       }
 
       const normalized = normalizeWAMessages(wa.messages, settings, chat);
-      chrome.runtime.sendMessage({ type: "progress", current: normalized.length, total: wa.target || 0, percent: 94, status: "Gerando arquivo..." });
+      chrome.runtime.sendMessage({ type: "progress", current: normalized.length, total: wa.target || 0, percent: 86, status: "Gerando arquivo de texto..." });
 
+      const stamp = new Date().toISOString().slice(0, 10);
+      const base = sanitizeFilename(`${chat.name}_${stamp}`);
+      
       await generateExport(normalized, settings, chat);
+
+      // Check if we need to download media
+      if (settings.exportImages || settings.exportAudios || settings.exportDocs) {
+        chrome.runtime.sendMessage({ type: "progress", percent: 87, status: "Preparando download de mídias..." });
+        
+        try {
+          const mediaResults = await bridge.downloadMediaForExport(wa.messages, {
+            exportImages: settings.exportImages,
+            exportAudios: settings.exportAudios,
+            exportDocs: settings.exportDocs
+          });
+          
+          // Create and download ZIPs for each media type
+          if (settings.exportImages && mediaResults.images && mediaResults.images.length > 0) {
+            chrome.runtime.sendMessage({ type: "progress", percent: 92, status: `Gerando ZIP de imagens... (${mediaResults.images.length} arquivos)` });
+            const zipResult = await bridge.createMediaZip(mediaResults.images, `${base}_imagens.zip`);
+            if (zipResult) {
+              await downloadBlob(zipResult.blob, zipResult.filename);
+            }
+          }
+          
+          if (settings.exportAudios && mediaResults.audios && mediaResults.audios.length > 0) {
+            chrome.runtime.sendMessage({ type: "progress", percent: 94, status: `Gerando ZIP de áudios... (${mediaResults.audios.length} arquivos)` });
+            const zipResult = await bridge.createMediaZip(mediaResults.audios, `${base}_audios.zip`);
+            if (zipResult) {
+              await downloadBlob(zipResult.blob, zipResult.filename);
+            }
+          }
+          
+          if (settings.exportDocs && mediaResults.docs && mediaResults.docs.length > 0) {
+            chrome.runtime.sendMessage({ type: "progress", percent: 96, status: `Gerando ZIP de documentos... (${mediaResults.docs.length} arquivos)` });
+            const zipResult = await bridge.createMediaZip(mediaResults.docs, `${base}_docs.zip`);
+            if (zipResult) {
+              await downloadBlob(zipResult.blob, zipResult.filename);
+            }
+          }
+        } catch (e) {
+          console.error("[ChatBackup] Erro ao processar mídias:", e);
+          // Continue even if media export fails
+        }
+      }
 
       chrome.runtime.sendMessage({ type: "complete", count: normalized.length });
     } catch (e) {
