@@ -320,6 +320,8 @@
 
     const MAX_INLINE_TOTAL = 25 * 1024 * 1024; // ~25MB
     let inlineTotal = 0;
+    let successCount = 0;
+    let failCount = 0;
 
     const LIMIT_MEDIA = 5000; // safety
     const work = list.slice(0, LIMIT_MEDIA);
@@ -329,7 +331,13 @@
 
       const msg = work[i];
       const pct = 88 + Math.round((i / Math.max(work.length, 1)) * 5);
-      chrome.runtime.sendMessage({ type: "progress", current: i + 1, total: work.length, percent: Math.min(pct, 93), status: `Baixando mídias... (${i+1}/${work.length})` });
+      chrome.runtime.sendMessage({ 
+        type: "progress", 
+        current: i + 1, 
+        total: work.length, 
+        percent: Math.min(pct, 93), 
+        status: `Baixando mídias... (${i+1}/${work.length}, ✓${successCount} ✗${failCount})` 
+      });
 
       let res = null;
       try {
@@ -345,8 +353,10 @@
         const fileName = `${baseName}_${msg.media.msgId}.${ext}`;
         msg.media.fileName = fileName;
 
-        // inline for HTML if size budget allows and is image/video
-        if (wantInline && (msg.media.type === "image" || msg.media.type === "sticker" || msg.media.type === "video")) {
+        // inline for HTML if size budget allows (images, videos, audio)
+        if (wantInline && (msg.media.type === "image" || msg.media.type === "sticker" || 
+                          msg.media.type === "video" || msg.media.type === "audio" || 
+                          msg.media.type === "ptt")) {
           const approx = String(res.dataUrl).length * 0.75;
           if (inlineTotal + approx <= MAX_INLINE_TOTAL) {
             msg.media.dataUrl = res.dataUrl;
@@ -363,12 +373,24 @@
             // ignore
           }
         }
+        
+        successCount++;
       } else {
         msg.media.failed = true;
+        failCount++;
       }
 
       if (i % 10 === 0) await new Promise(r => setTimeout(r, 80));
     }
+    
+    // Final progress update with summary
+    chrome.runtime.sendMessage({ 
+      type: "progress", 
+      current: work.length, 
+      total: work.length, 
+      percent: 93, 
+      status: `Mídias processadas: ${successCount} sucesso, ${failCount} falhas` 
+    });
   }
 
   async function generateExport(messages, settings, chat) {
@@ -408,7 +430,7 @@
     if (settings.includeSender) headers.push("Remetente");
     headers.push("Mensagem");
     headers.push("Tipo");
-    if (settings.includeMedia) headers.push("Midia");
+    if (settings.includeMedia) headers.push("Arquivo Mídia");
 
     const rows = [headers.join(",")];
     for (const m of messages) {
@@ -417,7 +439,10 @@
       if (settings.includeSender) cols.push(`"${escCSV(m.sender)}"`);
       cols.push(`"${escCSV(m.text)}"`);
       cols.push(m.isOutgoing ? "Enviada" : "Recebida");
-      if (settings.includeMedia) cols.push(m.media ? escCSV(m.media.type) : "");
+      if (settings.includeMedia) {
+        const mediaInfo = m.media ? (m.media.fileName || m.media.type) : "";
+        cols.push(escCSV(mediaInfo));
+      }
       rows.push(cols.join(","));
     }
     return "\uFEFF" + rows.join("\n");
@@ -436,7 +461,10 @@
       if (settings.includeTimestamps && m.timestamp) line += `[${m.timestamp}] `;
       if (settings.includeSender && m.sender) line += `${m.sender}: `;
       line += m.text || "";
-      if (m.media) line += ` [${m.media.type}]`;
+      if (m.media) {
+        const mediaInfo = m.media.fileName ? `${m.media.type}: ${m.media.fileName}` : m.media.type;
+        line += ` [${mediaInfo}]`;
+      }
       lines.push(line);
     }
     return lines.join("\n");
@@ -451,10 +479,13 @@
         if (m.media.dataUrl) {
           const safeDataUrl = escHTML(m.media.dataUrl);
           const safeMime = escHTML(m.media.mime || '');
+          const safeFileName = escHTML(m.media.fileName || 'arquivo');
           if (m.media.type === "video") {
             mediaHTML = `<video class="video" controls><source src="${safeDataUrl}" type="${safeMime || 'video/mp4'}">Seu navegador não suporta vídeo.</video>`;
           } else if (m.media.type === "audio" || m.media.type === "ptt") {
             mediaHTML = `<audio class="audio" controls><source src="${safeDataUrl}" type="${safeMime || 'audio/ogg'}">Seu navegador não suporta áudio.</audio>`;
+          } else if (m.media.type === "document") {
+            mediaHTML = `<div class="media"><a href="${safeDataUrl}" download="${safeFileName}">📎 ${safeFileName}</a></div>`;
           } else {
             mediaHTML = `<img class="img" src="${safeDataUrl}" alt="imagem" />`;
           }
