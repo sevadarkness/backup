@@ -561,39 +561,22 @@
           try {
             let blob = null;
             
-            // Try WAWebDownloadManager first (fastest and most reliable method)
-            if (dm) {
-              try {
-                const downloadParams = {
-                  directPath: msg.directPath,
-                  mediaKey: msg.mediaKey,
-                  type: msg.type,
-                  mimetype: msg.mimetype
-                };
-                
-                if (msg.mediaKeyTimestamp) downloadParams.mediaKeyTimestamp = msg.mediaKeyTimestamp;
-                if (msg.encFilehash) downloadParams.encFilehash = msg.encFilehash;
-                if (msg.filehash) downloadParams.filehash = msg.filehash;
-                
-                const arrayBuffer = await dm.downloadAndMaybeDecrypt(downloadParams);
-                
-                if (arrayBuffer && arrayBuffer.byteLength > 0) {
-                  blob = new Blob([arrayBuffer], { type: msg.mimetype || 'application/octet-stream' });
-                }
-              } catch (e) {
-                console.debug(`[ChatBackup] downloadAndMaybeDecrypt failed for ${msg?.type}:`, e?.message || e);
-              }
-            }
+            // IMPORTANTE: downloadAndMaybeDecrypt NÃO funciona com mensagens serializadas
+            // porque perde as referências internas do objeto WhatsApp
+            // Usar APENAS o método manual de download e decriptação
             
-            // Fallback ONLY if downloadAndMaybeDecrypt failed AND we have a direct URL
-            if (!blob && msg?.deprecatedMms3Url) {
+            const url = getMediaUrl(msg);
+            const mediaKey = getMediaKey(msg);
+            
+            if (url && mediaKey) {
               try {
                 blob = await downloadAndDecryptMedia(msg);
               } catch (e) {
-                // Log but don't fail - some media just can't be downloaded
                 const msgId = msg?.id || msg?.t || 'unknown';
-                console.warn(`[ChatBackup] Manual decryption also failed for ${msg?.type} (ID: ${msgId}):`, e?.message);
+                console.warn(`[ChatBackup] Download failed for ${msg?.type} (ID: ${msgId}):`, e?.message);
               }
+            } else {
+              console.log(`[ChatBackup] Skipping ${msg?.type} - missing URL or mediaKey`);
             }
             
             if (blob && blob.size > 0) {
