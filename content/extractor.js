@@ -330,7 +330,7 @@
     // Fallback: Try deprecatedMms3Url (direct URL)
     try {
       const url = msg?.__x_deprecatedMms3Url || msg?.deprecatedMms3Url;
-      if (url && typeof url === "string" && url.startsWith("http")) {
+      if (url && typeof url === "string" && (url.startsWith("https://") || url.startsWith("http://"))) {
         const response = await fetch(url);
         if (response.ok) {
           const blob = await response.blob();

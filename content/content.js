@@ -354,9 +354,8 @@
         msg.media.fileName = fileName;
 
         // inline for HTML if size budget allows (images, videos, audio)
-        if (wantInline && (msg.media.type === "image" || msg.media.type === "sticker" || 
-                          msg.media.type === "video" || msg.media.type === "audio" || 
-                          msg.media.type === "ptt")) {
+        const inlineTypes = ['image', 'sticker', 'video', 'audio', 'ptt'];
+        if (wantInline && inlineTypes.includes(msg.media.type)) {
           const approx = String(res.dataUrl).length * 0.75;
           if (inlineTotal + approx <= MAX_INLINE_TOTAL) {
             msg.media.dataUrl = res.dataUrl;
@@ -430,7 +429,7 @@
     if (settings.includeSender) headers.push("Remetente");
     headers.push("Mensagem");
     headers.push("Tipo");
-    if (settings.includeMedia) headers.push("Arquivo Mídia");
+    if (settings.includeMedia) headers.push("Mídia");
 
     const rows = [headers.join(",")];
     for (const m of messages) {
