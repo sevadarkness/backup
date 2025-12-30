@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChatBackup</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo">
+        <div class="logo-badge">CB</div>
+        <div>
+          <div class="title">ChatBackup</div>
+          <div class="subtitle">Backup do WhatsApp Web</div>
+        </div>
+      </div>
+      <div class="version">v1.0.6</div>
+    </header>
+
+    <div id="status" class="status">
+      <span id="dot" class="dot loading"></span>
+      <span id="statusText">Verificando...</span>
+    </div>
+
+    <div id="wrongPage" class="alert hidden">
+      ⚠️ Abra <b>web.whatsapp.com</b> (aba ativa) e recarregue a página.
+    </div>
+
+    <div id="chatCard" class="card hidden">
+      <div class="chatRow">
+        <div class="avatar">💬</div>
+        <div class="chatInfo">
+          <div class="chatName" id="chatName">—</div>
+          <div class="chatMeta" id="chatMeta">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardTitle">⚙️ Exportação</div>
+
+      <label class="label">Formato</label>
+      <select id="format" class="select">
+        <option value="html">HTML (visual)</option>
+        <option value="csv">CSV</option>
+        <option value="json">JSON</option>
+        <option value="txt">TXT</option>
+      </select>
+
+      <label class="label">Limite</label>
+      <select id="limit" class="select">
+        <option value="1000">1.000</option>
+        <option value="5000">5.000</option>
+        <option value="10000">10.000</option>
+        <option value="50000">50.000</option>
+        <option value="100000">100.000</option>
+        <option value="-1">Todas</option>
+      </select>
+
+      <label class="check"><input id="incTs" type="checkbox" checked /> Incluir data/hora</label>
+      <label class="check"><input id="incSender" type="checkbox" checked /> Incluir remetente</label>
+      <label class="check"><input id="incMedia" type="checkbox" checked /> Incluir mídias (imagens)</label>
+      <label class="check"><input id="dlMedia" type="checkbox" /> Baixar imagens separadamente</label>
+
+      <button id="btnExport" class="btn primary">Exportar conversa</button>
+      <button id="btnCancel" class="btn ghost hidden">Cancelar</button>
+
+      <div id="progressBox" class="progress hidden">
+        <div class="progressTop">
+          <span id="progStatus">Preparando…</span>
+          <span id="progPct">0%</span>
+        </div>
+        <div class="bar"><div id="barFill" class="fill"></div></div>
+        <div class="progressBottom"><span id="progDetail">—</span></div>
+      </div>
+
+      <div class="hint">
+        Para exportar tudo: selecione <b>Limite = Todas</b> e aguarde o carregamento do histórico.
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,479 @@
+// ChatBackup - Content Script (ISOLATED)
+// - Injects extractor.js into MAIN world
+// - Uses bridge to load full history via WAWeb*
+// - Differentiates sender/receiver and downloads images
+(function () {
+  "use strict";
+
+  if (window.__chatbackup_content_loaded__) return;
+  window.__chatbackup_content_loaded__ = true;
+
+  const BRIDGE_NS = "chatbackup_bridge_v1";
+
+  const SEL = {
+    SIDE: "#pane-side",
+    HEADER: 'header[data-testid="conversation-header"], #main header',
+    HEADER_TITLE: '#main header span[title], header[data-testid="conversation-header"] span[title]',
+    QR: 'canvas[aria-label*="QR"], [data-ref="qr-code"], [data-testid="qrcode"], [data-testid="qrcode-canvas"]'
+  };
+
+  // Inject extractor.js once
+  function inject() {
+    const id = "__chatbackup_extractor__";
+    if (document.getElementById(id)) return;
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = chrome.runtime.getURL("content/extractor.js");
+    s.onload = () => s.remove();
+    (document.head || document.documentElement).appendChild(s);
+  }
+  inject();
+
+  function isVisible(el) {
+    if (!el) return false;
+    const st = window.getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 10 && r.height > 10;
+  }
+
+  function checkConnected() {
+    const side = document.querySelector(SEL.SIDE);
+    if (!side) return false;
+    const qr = document.querySelector(SEL.QR);
+    // Only treat as disconnected if QR is visible
+    if (qr && isVisible(qr)) return false;
+    return true;
+  }
+
+  function detectCurrentChat() {
+    const header = document.querySelector(SEL.HEADER);
+    if (!header) return null;
+    const titleEl = header.querySelector('span[title]') || document.querySelector(SEL.HEADER_TITLE);
+    const name = titleEl?.getAttribute("title") || titleEl?.textContent || "";
+    if (!name) return null;
+
+    const subtitle = header.querySelector('[data-testid="conversation-info-header-chat-subtitle"]');
+    const isGroup = !!(subtitle?.textContent?.includes(","));
+    const avatar = header.querySelector("img")?.src || null;
+
+    return { name, isGroup, avatar };
+  }
+
+  class Bridge {
+    constructor(onEvent) {
+      this.pending = new Map();
+      this.onEvent = onEvent;
+
+      window.addEventListener("message", (event) => {
+        if (event.source !== window) return;
+        const data = event.data;
+        if (!data || data.ns !== BRIDGE_NS) return;
+
+        if (data.dir === "evt" && data.type) {
+          try { this.onEvent?.(data.type, data.payload); } catch {}
+          return;
+        }
+
+        if (data.dir === "res" && data.id) {
+          const p = this.pending.get(data.id);
+          if (!p) return;
+          this.pending.delete(data.id);
+          if (data.ok) p.resolve(data.result);
+          else p.reject(new Error(data.error || "bridge_error"));
+        }
+      });
+    }
+
+    request(action, payload, timeoutMs = 120000) {
+      const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      const msg = { ns: BRIDGE_NS, dir: "req", id, action, payload };
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error("bridge_timeout"));
+        }, timeoutMs);
+        this.pending.set(id, {
+          resolve: (v) => { clearTimeout(t); resolve(v); },
+          reject: (e) => { clearTimeout(t); reject(e); }
+        });
+        window.postMessage(msg, "*");
+      });
+    }
+
+    ping() { return this.request("ping", {}, 8000); }
+    setCancel(cancel) { return this.request("setCancel", { cancel: !!cancel }, 4000); }
+    getActiveChatMessages(opts, timeoutMs) { return this.request("getActiveChatMessages", opts || {}, timeoutMs || 300000); }
+    downloadImageDataUrl(msgId, timeoutMs) { return this.request("downloadImageDataUrl", { msgId }, timeoutMs || 30000); }
+  }
+
+  let cancelRequested = false;
+  let exporting = false;
+  let currentChatCache = null;
+
+  const bridge = new Bridge((type, payload) => {
+    if (!exporting) return;
+    if (type === "waLoadProgress") {
+      const loaded = payload?.loaded ?? 0;
+      const target = payload?.target ?? 0;
+      const attempt = payload?.attempt ?? 0;
+      const maxLoads = payload?.maxLoads ?? 1;
+
+      let percent = 5;
+      if (payload?.phase === "tick") {
+        percent = Math.min(80, 5 + Math.round((attempt / Math.max(maxLoads, 1)) * 75));
+      } else if (payload?.phase === "final") {
+        percent = 85;
+      }
+      chrome.runtime.sendMessage({ type: "progress", current: loaded, total: target, percent, status: `Carregando histórico... (${loaded} msgs)` });
+    }
+  });
+
+  // Listener immediate for background/popup ping
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    try {
+      if (msg.action === "ping") {
+        sendResponse({ pong: true });
+        return true;
+      }
+      if (msg.action === "getStatus") {
+        const connected = checkConnected();
+        const chat = detectCurrentChat();
+        currentChatCache = chat || currentChatCache;
+        sendResponse({
+          connected,
+          currentChat: chat || currentChatCache,
+          stats: { total: 0, media: 0, links: 0, docs: 0 },
+          message: connected ? "Conectado" : "WhatsApp não conectado (faça login no QR Code)"
+        });
+        return true;
+      }
+      if (msg.action === "cancelExport") {
+        cancelRequested = true;
+        bridge.setCancel(true).catch(() => {});
+        sendResponse({ cancelled: true });
+        return true;
+      }
+      if (msg.action === "startExport") {
+        startExport(msg.settings).then(() => {}).catch(() => {});
+        sendResponse({ started: true });
+        return true;
+      }
+    } catch (e) {
+      sendResponse({ error: String(e?.message || e) });
+      return true;
+    }
+    sendResponse({ error: "unknown_action" });
+    return true;
+  });
+
+  async function startExport(settings) {
+    if (exporting) return;
+    exporting = true;
+    cancelRequested = false;
+    await bridge.setCancel(false).catch(() => {});
+    document.documentElement.classList.add("chatbackup-exporting");
+
+    try {
+      const chat = detectCurrentChat();
+      if (!chat) throw new Error("Abra uma conversa (clique em um chat) antes de exportar.");
+      currentChatCache = chat;
+      chrome.runtime.sendMessage({ type: "chatUpdate", chat });
+
+      // Ensure bridge ready
+      await bridge.ping();
+
+      const wantAll = settings.messageLimit === -1;
+      const hardCap = 100000;
+      const limit = wantAll ? -1 : Math.min(Number(settings.messageLimit) || 1000, hardCap);
+
+      // heavier loads for all
+      const maxLoads = wantAll ? 8000 : 1200;
+      const delayMs = wantAll ? 900 : 650;
+
+      chrome.runtime.sendMessage({ type: "progress", current: 0, total: wantAll ? hardCap : (limit || 0), percent: 2, status: "Buscando mensagens (API interna)..." });
+
+      const wa = await bridge.getActiveChatMessages({ limit, maxLoads, delayMs }, wantAll ? 360000 : 120000);
+      if (!wa?.ok || !Array.isArray(wa.messages) || wa.messages.length === 0) {
+        throw new Error("Falha ao obter mensagens via API interna. Abra a conversa e tente novamente.");
+      }
+
+      const normalized = normalizeWAMessages(wa.messages, settings, chat);
+      chrome.runtime.sendMessage({ type: "progress", current: normalized.length, total: wa.target || 0, percent: 88, status: "Processando mensagens..." });
+
+      if (settings.includeMedia) {
+        await processImages(normalized, settings, chat);
+      }
+
+      chrome.runtime.sendMessage({ type: "progress", current: normalized.length, total: wa.target || 0, percent: 94, status: "Gerando arquivo..." });
+
+      await generateExport(normalized, settings, chat);
+
+      chrome.runtime.sendMessage({ type: "complete", count: normalized.length });
+    } catch (e) {
+      chrome.runtime.sendMessage({ type: "error", error: String(e?.message || e) });
+    } finally {
+      document.documentElement.classList.remove("chatbackup-exporting");
+      exporting = false;
+    }
+  }
+
+  function normalizeWAMessages(messages, settings, chat) {
+    const out = [];
+    const otherName = chat?.name || "Contato";
+
+    for (const m of messages) {
+      if (cancelRequested) break;
+
+      const ts = (typeof m.t === "number") ? new Date(m.t * 1000) : null;
+      const timestamp = settings.includeTimestamps && ts ? ts.toLocaleString("pt-BR") : "";
+
+      const isOutgoing = !!m.fromMe;
+      const sender = settings.includeSender ? (isOutgoing ? "Você" : (m.sender || otherName)) : "";
+
+      const type = String(m.type || "chat");
+      let text = m.text || "";
+      let media = null;
+
+      if (settings.includeMedia && (type === "image" || type === "sticker" || type === "video" || type === "audio" || type === "ptt" || type === "document")) {
+        media = { type, msgId: m.id || null, dataUrl: null, fileName: null, failed: false };
+        if (!text) text = `[${type}]`;
+      }
+
+      // Skip empty
+      if (!text && !media) continue;
+
+      out.push({ id: m.id || null, timestamp, sender, text, isOutgoing, media });
+    }
+    return out;
+  }
+
+  function sanitizeFilename(name) {
+    return String(name || "file").replace(/[<>:"/\\|?*]/g, "_").replace(/\s+/g, "_").slice(0, 180);
+  }
+
+  function dataUrlToBlob(dataUrl) {
+    const parts = String(dataUrl).split(",");
+    const meta = parts[0] || "";
+    const b64 = parts[1] || "";
+    const mime = (meta.match(/data:([^;]+);/i) || [])[1] || "application/octet-stream";
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  function extFromMime(mime) {
+    const m = String(mime || "").toLowerCase();
+    if (m.includes("png")) return "png";
+    if (m.includes("webp")) return "webp";
+    if (m.includes("gif")) return "gif";
+    if (m.includes("mp4")) return "mp4";
+    if (m.includes("ogg")) return "ogg";
+    if (m.includes("pdf")) return "pdf";
+    return "jpg";
+  }
+
+  async function downloadBlob(blob, fileName) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(blob);
+      chrome.runtime.sendMessage({ action: "download", url, fileName }, () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      });
+    });
+  }
+
+  async function processImages(messages, settings, chat) {
+    // Only for image/sticker in this build (best reliability).
+    const list = messages.filter(m => m.media && (m.media.type === "image" || m.media.type === "sticker") && m.media.msgId);
+    if (!list.length) return;
+
+    const wantFiles = !!settings.downloadMediaFiles;
+    const wantInline = settings.format === "html";
+
+    const MAX_INLINE_TOTAL = 25 * 1024 * 1024; // ~25MB
+    let inlineTotal = 0;
+
+    const LIMIT_MEDIA = 5000; // safety
+    const work = list.slice(0, LIMIT_MEDIA);
+
+    for (let i = 0; i < work.length; i++) {
+      if (cancelRequested) break;
+
+      const msg = work[i];
+      const pct = 88 + Math.round((i / Math.max(work.length, 1)) * 5);
+      chrome.runtime.sendMessage({ type: "progress", current: i + 1, total: work.length, percent: Math.min(pct, 93), status: `Baixando imagens... (${i+1}/${work.length})` });
+
+      let res = null;
+      try {
+        res = await bridge.downloadImageDataUrl(msg.media.msgId, 30000);
+      } catch {
+        res = null;
+      }
+
+      if (res?.ok && res.dataUrl) {
+        const mime = res.mime || (String(res.dataUrl).match(/^data:([^;]+);/i)?.[1]) || "image/jpeg";
+        const ext = extFromMime(mime);
+        const baseName = sanitizeFilename(`${chat.name}_${i+1}`);
+        const fileName = `${baseName}_${msg.media.msgId}.${ext}`;
+        msg.media.fileName = fileName;
+
+        // inline for HTML if size budget allows
+        if (wantInline) {
+          const approx = String(res.dataUrl).length * 0.75;
+          if (inlineTotal + approx <= MAX_INLINE_TOTAL) {
+            msg.media.dataUrl = res.dataUrl;
+            inlineTotal += approx;
+          }
+        }
+
+        // download file separately if requested
+        if (wantFiles) {
+          try {
+            const blob = dataUrlToBlob(res.dataUrl);
+            await downloadBlob(blob, fileName);
+          } catch {
+            // ignore
+          }
+        }
+      } else {
+        msg.media.failed = true;
+      }
+
+      if (i % 10 === 0) await new Promise(r => setTimeout(r, 80));
+    }
+  }
+
+  async function generateExport(messages, settings, chat) {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const base = sanitizeFilename(`${chat.name}_${stamp}`);
+
+    let content = "";
+    let mime = "text/plain;charset=utf-8";
+    let ext = "txt";
+
+    if (settings.format === "csv") {
+      ({ content, mime, ext } = { content: generateCSV(messages, settings), mime: "text/csv;charset=utf-8", ext: "csv" });
+    } else if (settings.format === "json") {
+      ({ content, mime, ext } = { content: JSON.stringify({ chatName: chat.name, exportDate: new Date().toISOString(), messageCount: messages.length, messages }, null, 2), mime: "application/json;charset=utf-8", ext: "json" });
+    } else if (settings.format === "html") {
+      ({ content, mime, ext } = { content: generateHTML(messages, settings, chat), mime: "text/html;charset=utf-8", ext: "html" });
+    } else {
+      ({ content, mime, ext } = { content: generateTXT(messages, settings, chat), mime: "text/plain;charset=utf-8", ext: "txt" });
+    }
+
+    await downloadBlob(new Blob([content], { type: mime }), `${base}.${ext}`);
+  }
+
+  function escCSV(s) { return String(s || "").replace(/"/g, '""').replace(/\n/g, " "); }
+  function escHTML(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function generateCSV(messages, settings) {
+    const headers = [];
+    if (settings.includeTimestamps) headers.push("Data/Hora");
+    if (settings.includeSender) headers.push("Remetente");
+    headers.push("Mensagem");
+    headers.push("Tipo");
+    if (settings.includeMedia) headers.push("Midia");
+
+    const rows = [headers.join(",")];
+    for (const m of messages) {
+      const cols = [];
+      if (settings.includeTimestamps) cols.push(`"${escCSV(m.timestamp)}"`);
+      if (settings.includeSender) cols.push(`"${escCSV(m.sender)}"`);
+      cols.push(`"${escCSV(m.text)}"`);
+      cols.push(m.isOutgoing ? "Enviada" : "Recebida");
+      if (settings.includeMedia) cols.push(m.media ? escCSV(m.media.type) : "");
+      rows.push(cols.join(","));
+    }
+    return "\uFEFF" + rows.join("\n");
+  }
+
+  function generateTXT(messages, settings, chat) {
+    const lines = [
+      `Exportação do WhatsApp - ${chat.name}`,
+      `Data: ${new Date().toLocaleString("pt-BR")}`,
+      `Total: ${messages.length} mensagens`,
+      "=".repeat(50),
+      ""
+    ];
+    for (const m of messages) {
+      let line = "";
+      if (settings.includeTimestamps && m.timestamp) line += `[${m.timestamp}] `;
+      if (settings.includeSender && m.sender) line += `${m.sender}: `;
+      line += m.text || "";
+      if (m.media) line += ` [${m.media.type}]`;
+      lines.push(line);
+    }
+    return lines.join("\n");
+  }
+
+  function generateHTML(messages, settings, chat) {
+    let htmlMsgs = "";
+    for (const m of messages) {
+      const cls = m.isOutgoing ? "out" : "in";
+      let mediaHTML = "";
+      if (settings.includeMedia && m.media) {
+        if (m.media.dataUrl) {
+          mediaHTML = `<img class="img" src="${m.media.dataUrl}" alt="imagem" />`;
+        } else {
+          const label = m.media.failed ? `${m.media.type} (falhou)` : m.media.type;
+          const fn = m.media.fileName ? ` — ${escHTML(m.media.fileName)}` : "";
+          mediaHTML = `<div class="media">[${escHTML(label)}${fn}]</div>`;
+        }
+      }
+      htmlMsgs += `
+        <div class="msg ${cls}">
+          ${settings.includeSender ? `<div class="sender">${escHTML(m.sender)}</div>` : ""}
+          <div class="text">${escHTML(m.text)}</div>
+          ${mediaHTML}
+          ${settings.includeTimestamps ? `<div class="time">${escHTML(m.timestamp)}</div>` : ""}
+        </div>
+      `;
+    }
+
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp - ${escHTML(chat.name)}</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#efeae2;margin:0;padding:18px}
+    .wrap{max-width:860px;margin:0 auto}
+    .head{background:#075E54;color:#fff;padding:16px;border-radius:12px}
+    .head h1{margin:0;font-size:18px}
+    .head p{margin:6px 0 0;font-size:12px;opacity:.85}
+    .chat{margin-top:12px;padding:14px;background:rgba(255,255,255,.65);border-radius:12px}
+    .msg{max-width:70%;padding:10px 12px;border-radius:10px;margin:8px 0;box-shadow:0 1px 0.5px rgba(0,0,0,.13)}
+    .msg.in{background:#fff;margin-right:auto;border-top-left-radius:0}
+    .msg.out{background:#DCF8C6;margin-left:auto;border-top-right-radius:0}
+    .sender{font-weight:700;color:#075E54;font-size:12px;margin-bottom:2px}
+    .text{font-size:14px;white-space:pre-wrap}
+    .time{font-size:11px;color:#667781;text-align:right;margin-top:6px}
+    .media{font-size:12px;color:#5a6b79;background:rgba(0,0,0,.05);padding:8px;border-radius:8px;margin-top:8px}
+    .img{max-width:100%;border-radius:10px;margin-top:8px}
+    .foot{margin-top:12px;text-align:center;color:#667781;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <h1>${escHTML(chat.name)}</h1>
+      <p>Exportado em ${new Date().toLocaleString("pt-BR")} • ${messages.length} mensagens</p>
+    </div>
+    <div class="chat">${htmlMsgs}</div>
+    <div class="foot">Exportado com ChatBackup • 100% local</div>
+  </div>
+</body>
+</html>`;
+  }
+})();
