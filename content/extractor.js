@@ -374,6 +374,126 @@
     return 'bin';
   }
 
+  // ============ Manual Decryption Functions ============
+  
+  // Get media URL from message object
+  function getMediaUrl(msg) {
+    // Try entry.deprecatedMms3Url first
+    const entry = msg.mediaObject && msg.mediaObject.entries && 
+                  msg.mediaObject.entries.entries && msg.mediaObject.entries.entries[0];
+    if (entry && entry.deprecatedMms3Url) {
+      return entry.deprecatedMms3Url;
+    }
+    
+    // Fallback to msg.deprecatedMms3Url (works for stickers)
+    if (msg.deprecatedMms3Url) {
+      return msg.deprecatedMms3Url;
+    }
+    
+    // Construct URL manually as last resort
+    if (msg.directPath) {
+      return "https://mmg.whatsapp.net" + msg.directPath;
+    }
+    
+    return null;
+  }
+
+  // Get mediaKey from message object
+  function getMediaKey(msg) {
+    const entry = msg.mediaObject && msg.mediaObject.entries && 
+                  msg.mediaObject.entries.entries && msg.mediaObject.entries.entries[0];
+    return (entry && entry.mediaKey) || msg.mediaKey;
+  }
+
+  // HKDF Expand with WhatsApp info strings
+  async function hkdfExpand(key, type) {
+    const info = {
+      'image': 'WhatsApp Image Keys',
+      'video': 'WhatsApp Video Keys',
+      'audio': 'WhatsApp Audio Keys',
+      'ptt': 'WhatsApp Audio Keys',
+      'document': 'WhatsApp Document Keys',
+      'sticker': 'WhatsApp Image Keys'
+    };
+    
+    const infoStr = info[type] || 'WhatsApp Document Keys';
+    const infoBytes = new TextEncoder().encode(infoStr);
+    
+    // Import key for HKDF
+    const baseKey = await crypto.subtle.importKey(
+      'raw', key, { name: 'HKDF' }, false, ['deriveBits']
+    );
+    
+    // Derive 112 bytes
+    const expanded = await crypto.subtle.deriveBits(
+      { name: 'HKDF', salt: new Uint8Array(32), info: infoBytes, hash: 'SHA-256' },
+      baseKey, 112 * 8
+    );
+    
+    return new Uint8Array(expanded);
+  }
+
+  // Decrypt media using manual decryption
+  async function decryptMedia(encryptedData, mediaKeyBase64, mediaType) {
+    // Convert mediaKey from base64 to ArrayBuffer
+    const mediaKey = Uint8Array.from(atob(mediaKeyBase64), c => c.charCodeAt(0));
+    
+    // Expand the key using HKDF
+    const mediaKeyExpanded = await hkdfExpand(mediaKey, mediaType);
+    
+    // Extract IV (bytes 0-16) and cipher key (bytes 16-48)
+    const iv = mediaKeyExpanded.slice(0, 16);
+    const cipherKey = mediaKeyExpanded.slice(16, 48);
+    
+    // Remove last 10 bytes (MAC)
+    const encryptedWithoutMac = encryptedData.slice(0, -10);
+    
+    // Import the key for AES-CBC
+    const key = await crypto.subtle.importKey(
+      'raw', cipherKey, { name: 'AES-CBC' }, false, ['decrypt']
+    );
+    
+    // Decrypt
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-CBC', iv: iv },
+      key,
+      encryptedWithoutMac
+    );
+    
+    return decrypted;
+  }
+
+  // Main download and decrypt function
+  async function downloadAndDecryptMedia(msg) {
+    const url = getMediaUrl(msg);
+    const mediaKey = getMediaKey(msg);
+    
+    if (!url || !mediaKey) {
+      throw new Error('URL ou mediaKey não disponível');
+    }
+    
+    // Download encrypted data
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} - Mídia pode ter expirado`);
+    }
+    
+    const encryptedData = await response.arrayBuffer();
+    
+    // Decrypt
+    const decryptedData = await decryptMedia(
+      new Uint8Array(encryptedData),
+      mediaKey,
+      msg.type
+    );
+    
+    // Return blob
+    return new Blob([decryptedData], { type: msg.mimetype });
+  }
+
+  // ============ End Manual Decryption Functions ============
+
+
   async function downloadMediaForExport(messages, options = {}) {
     const { exportImages, exportAudios, exportDocs } = options;
     
@@ -382,10 +502,6 @@
     }
     
     const dm = tryRequire('WAWebDownloadManager')?.downloadManager;
-    if (!dm) {
-      console.error("[ChatBackup] WAWebDownloadManager not available");
-      return { images: [], audios: [], docs: [] };
-    }
     
     const mediaGroups = {
       images: [],  // type: image, sticker
@@ -393,7 +509,7 @@
       docs: []     // type: document
     };
     
-    // Filtrar mensagens por tipo
+    // Filter messages by type
     for (const msg of messages) {
       if (!msg || window.__CHATBACKUP_CANCEL__) break;
       
@@ -413,7 +529,7 @@
     
     const results = { images: [], audios: [], docs: [] };
     
-    // Baixar cada grupo com controle de paralelismo
+    // Download each group with concurrency control
     const downloadWithLimit = async (group, groupName) => {
       const concurrencyLimit = 3;
       const chunks = [];
@@ -423,36 +539,60 @@
       }
       
       let processedCount = 0;
+      let failedCount = 0;
       
       for (const chunk of chunks) {
         if (window.__CHATBACKUP_CANCEL__) break;
         
-        const promises = chunk.map(async (msg, idx) => {
+        const promises = chunk.map(async (msg) => {
           try {
             processedCount++;
             emit('mediaProgress', {
               groupName,
               current: processedCount,
-              total: group.length
+              total: group.length,
+              failed: failedCount
             });
             
-            // Prepare download params
-            const downloadParams = {
-              directPath: msg.directPath,
-              mediaKey: msg.mediaKey,
-              type: msg.type,
-              mimetype: msg.mimetype
-            };
+            let blob = null;
             
-            // Add optional params if they exist
-            if (msg.mediaKeyTimestamp) downloadParams.mediaKeyTimestamp = msg.mediaKeyTimestamp;
-            if (msg.encFilehash) downloadParams.encFilehash = msg.encFilehash;
-            if (msg.filehash) downloadParams.filehash = msg.filehash;
+            // Try WAWebDownloadManager first (fastest method)
+            if (dm && (msg.type === 'image' || msg.type === 'audio' || msg.type === 'ptt')) {
+              try {
+                const downloadParams = {
+                  directPath: msg.directPath,
+                  mediaKey: msg.mediaKey,
+                  type: msg.type,
+                  mimetype: msg.mimetype
+                };
+                
+                if (msg.mediaKeyTimestamp) downloadParams.mediaKeyTimestamp = msg.mediaKeyTimestamp;
+                if (msg.encFilehash) downloadParams.encFilehash = msg.encFilehash;
+                if (msg.filehash) downloadParams.filehash = msg.filehash;
+                
+                const arrayBuffer = await dm.downloadAndMaybeDecrypt(downloadParams);
+                
+                if (arrayBuffer && arrayBuffer.byteLength > 0) {
+                  blob = new Blob([arrayBuffer], { type: msg.mimetype || 'application/octet-stream' });
+                }
+              } catch (e) {
+                console.debug(`[ChatBackup] downloadAndMaybeDecrypt failed for ${msg.type}, trying manual decryption:`, e?.message || e);
+              }
+            }
             
-            const arrayBuffer = await dm.downloadAndMaybeDecrypt(downloadParams);
+            // Fallback to manual decryption for documents or if downloadAndMaybeDecrypt failed
+            if (!blob) {
+              try {
+                blob = await downloadAndDecryptMedia(msg);
+              } catch (e) {
+                const msgId = msg.id || msg.t || 'unknown';
+                console.error(`[ChatBackup] Manual decryption failed for ${groupName} (ID: ${msgId}):`, e?.message || e);
+                failedCount++;
+                return null;
+              }
+            }
             
-            if (arrayBuffer && arrayBuffer.byteLength > 0) {
-              const blob = new Blob([arrayBuffer], { type: msg.mimetype || 'application/octet-stream' });
+            if (blob && blob.size > 0) {
               const ext = getExtensionFromMimetype(msg.mimetype, msg.type);
               
               // Generate unique filename
@@ -462,11 +602,15 @@
               
               return { blob, filename };
             }
+            
+            failedCount++;
+            return null;
           } catch (e) {
             const msgId = msg.id || msg.t || 'unknown';
-            console.error(`[ChatBackup] Erro ao baixar mídia ${groupName} (ID: ${msgId}):`, e?.message || e);
+            console.error(`[ChatBackup] Error downloading media ${groupName} (ID: ${msgId}):`, e?.message || e);
+            failedCount++;
+            return null;
           }
-          return null;
         });
         
         const downloaded = await Promise.all(promises);
@@ -477,9 +621,14 @@
           await new Promise(r => setTimeout(r, 200));
         }
       }
+      
+      // Emit final progress with failed count
+      if (failedCount > 0) {
+        console.log(`[ChatBackup] ${groupName}: ${results[groupName].length} succeeded, ${failedCount} failed`);
+      }
     };
     
-    // Baixar cada tipo de mídia sequencialmente
+    // Download each media type sequentially
     if (exportImages && mediaGroups.images.length > 0) {
       await downloadWithLimit(mediaGroups.images, 'images');
     }

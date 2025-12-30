@@ -163,6 +163,7 @@
   let cancelRequested = false;
   let exporting = false;
   let currentChatCache = null;
+  let currentExportSettings = null;
 
   const bridge = new Bridge((type, payload) => {
     if (!exporting) return;
@@ -174,9 +175,13 @@
 
       let percent = 5;
       if (payload?.phase === "tick") {
-        percent = Math.min(80, 5 + Math.round((attempt / Math.max(maxLoads, 1)) * 75));
+        // Adjust based on whether media export is enabled
+        const hasMediaExport = exporting && (currentExportSettings?.exportImages || currentExportSettings?.exportAudios || currentExportSettings?.exportDocs);
+        const maxPercent = hasMediaExport ? 30 : 60;
+        percent = Math.min(maxPercent, 5 + Math.round((attempt / Math.max(maxLoads, 1)) * (maxPercent - 5)));
       } else if (payload?.phase === "final") {
-        percent = 85;
+        const hasMediaExport = exporting && (currentExportSettings?.exportImages || currentExportSettings?.exportAudios || currentExportSettings?.exportDocs);
+        percent = hasMediaExport ? 30 : 60;
       }
       chrome.runtime.sendMessage({ type: "progress", current: loaded, total: target, percent, status: `Carregando histórico... (${loaded} msgs)` });
     }
@@ -184,12 +189,25 @@
       const groupName = payload?.groupName || 'media';
       const current = payload?.current ?? 0;
       const total = payload?.total ?? 0;
+      const failed = payload?.failed ?? 0;
       const groupLabel = groupName === 'images' ? 'imagens' : groupName === 'audios' ? 'áudios' : 'documentos';
-      chrome.runtime.sendMessage({ type: "progress", current, total, percent: 88, status: `Baixando ${groupLabel}... (${current}/${total})` });
+      
+      // Calculate percentage based on media type
+      let percent = 50;
+      if (groupName === 'images') {
+        percent = 50 + Math.round((current / Math.max(total, 1)) * 15); // 50-65%
+      } else if (groupName === 'audios') {
+        percent = 65 + Math.round((current / Math.max(total, 1)) * 10); // 65-75%
+      } else if (groupName === 'docs') {
+        percent = 75 + Math.round((current / Math.max(total, 1)) * 10); // 75-85%
+      }
+      
+      const failedText = failed > 0 ? ` - ${failed} falharam` : '';
+      chrome.runtime.sendMessage({ type: "progress", current, total, percent, status: `Baixando ${groupLabel}... (${current}/${total})${failedText}` });
     }
     if (type === "zipProgress") {
       const zipName = payload?.zipName || 'media';
-      chrome.runtime.sendMessage({ type: "progress", percent: 95, status: `Gerando ZIP: ${zipName}` });
+      chrome.runtime.sendMessage({ type: "progress", percent: 90, status: `Gerando ZIP: ${zipName}` });
     }
   });
 
@@ -259,6 +277,7 @@
     if (exporting) return;
     exporting = true;
     cancelRequested = false;
+    currentExportSettings = settings;
     await bridge.setCancel(false).catch(() => {});
     document.documentElement.classList.add("chatbackup-exporting");
 
@@ -304,6 +323,8 @@
       // heavier loads for all
       const maxLoads = wantAll ? 8000 : 1200;
       const delayMs = wantAll ? 900 : 650;
+      
+      const hasMediaExport = settings.exportImages || settings.exportAudios || settings.exportDocs;
 
       chrome.runtime.sendMessage({ type: "progress", current: 0, total: wantAll ? hardCap : (limit || 0), percent: 2, status: "Buscando mensagens (API interna)..." });
 
@@ -313,16 +334,22 @@
       }
 
       const normalized = normalizeWAMessages(wa.messages, settings, chat);
-      chrome.runtime.sendMessage({ type: "progress", current: normalized.length, total: wa.target || 0, percent: 86, status: "Gerando arquivo de texto..." });
+      
+      // Adjust percentage based on whether media export is enabled
+      const processPercent = hasMediaExport ? 35 : 70;
+      chrome.runtime.sendMessage({ type: "progress", current: normalized.length, total: wa.target || 0, percent: processPercent, status: "Processando mensagens..." });
 
       const stamp = new Date().toISOString().slice(0, 10);
       const base = sanitizeFilename(`${chat.name}_${stamp}`);
+      
+      const generatePercent = hasMediaExport ? 45 : 85;
+      chrome.runtime.sendMessage({ type: "progress", percent: generatePercent, status: "Gerando arquivo de texto..." });
       
       await generateExport(normalized, settings, chat);
 
       // Check if we need to download media
       if (settings.exportImages || settings.exportAudios || settings.exportDocs) {
-        chrome.runtime.sendMessage({ type: "progress", percent: 87, status: "Preparando download de mídias..." });
+        chrome.runtime.sendMessage({ type: "progress", percent: 50, status: "Preparando download de mídias..." });
         
         try {
           const mediaResults = await bridge.downloadMediaForExport(wa.messages, {
@@ -342,17 +369,17 @@
             }
           };
           
-          // Create and download ZIPs for each media type
+          // Create and download ZIPs for each media type with proper percentages
           if (settings.exportImages) {
-            await createAndDownloadZip(mediaResults.images, 'imagens', 'imagens', 92);
+            await createAndDownloadZip(mediaResults.images, 'imagens', 'imagens', 87);
           }
           
           if (settings.exportAudios) {
-            await createAndDownloadZip(mediaResults.audios, 'audios', 'áudios', 94);
+            await createAndDownloadZip(mediaResults.audios, 'audios', 'áudios', 90);
           }
           
           if (settings.exportDocs) {
-            await createAndDownloadZip(mediaResults.docs, 'docs', 'documentos', 96);
+            await createAndDownloadZip(mediaResults.docs, 'docs', 'documentos', 93);
           }
         } catch (e) {
           console.error("[ChatBackup] Erro ao processar mídias:", e);
@@ -366,6 +393,7 @@
     } finally {
       document.documentElement.classList.remove("chatbackup-exporting");
       exporting = false;
+      currentExportSettings = null;
     }
   }
 
