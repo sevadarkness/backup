@@ -19,6 +19,18 @@
     QR: 'canvas[aria-label*="QR"], [data-ref="qr-code"], [data-testid="qrcode"], [data-testid="qrcode-canvas"]'
   };
 
+  // Inject JSZip into MAIN world
+  function injectJSZip() {
+    const id = "__chatbackup_jszip__";
+    if (document.getElementById(id)) return;
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = chrome.runtime.getURL("libs/jszip.min.js");
+    s.onload = () => console.log('[ChatBackup] JSZip carregado no mundo MAIN');
+    s.onerror = () => console.error('[ChatBackup] Falha ao carregar JSZip');
+    (document.head || document.documentElement).appendChild(s);
+  }
+
   // Inject extractor.js once
   function inject() {
     const id = "__chatbackup_extractor__";
@@ -29,6 +41,9 @@
     s.onload = () => s.remove();
     (document.head || document.documentElement).appendChild(s);
   }
+  
+  // Inject both JSZip and extractor
+  injectJSZip();
   inject();
 
   function isVisible(el) {
@@ -495,153 +510,36 @@
 
   async function generateZipExport(messages, settings, chat, baseName) {
     try {
-      // Load JSZip dynamically
-      const jsZipCode = await fetch(chrome.runtime.getURL('libs/jszip.min.js')).then(r => r.text());
-      
-      // Execute JSZip in current context
-      const scriptEl = document.createElement('script');
-      scriptEl.textContent = jsZipCode;
-      document.head.appendChild(scriptEl);
-      
-      // Poll for JSZip to be available (more robust than fixed delay)
-      let attempts = 0;
-      while (typeof JSZip === 'undefined' && attempts < 50) {
-        await new Promise(r => setTimeout(r, 50));
-        attempts++;
-      }
-      
-      if (typeof JSZip === 'undefined') {
-        throw new Error('JSZip failed to load after timeout');
-      }
-      
-      const zip = new JSZip();
-      const mediaFolder = zip.folder("media");
-      
-      let mediaIndex = 0;
-      const mediaMap = new Map();
-      
-      // Extract media files and add to ZIP
-      for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        // Validate msg.id exists before processing
-        if (msg.media && msg.media.dataUrl && msg.id) {
-          const base64Data = msg.media.dataUrl.split(',')[1];
-          const mime = extractMimeFromDataUrl(msg.media.dataUrl);
-          const ext = extFromMime(mime, msg.media.type);
-          const filename = msg.media.type + '_' + String(mediaIndex).padStart(3, '0') + '.' + ext;
-          
-          mediaFolder.file(filename, base64Data, {base64: true});
-          mediaMap.set(msg.id, 'media/' + filename);
-          mediaIndex++;
-        }
-      }
-      
-      // Generate HTML with local media references
-      const htmlContent = generateHTMLForZip(messages, settings, chat, mediaMap);
-      zip.file("backup.html", htmlContent);
-      
-      // Add JSON data
-      const jsonData = {
-        chatName: chat.name,
-        exportDate: new Date().toISOString(),
-        messageCount: messages.length,
+      // Use the extractor (MAIN world) to generate ZIP
+      const result = await bridge.request("generateZip", {
         messages: messages.map(m => ({
+          id: m.id,
           timestamp: m.timestamp,
           sender: m.sender,
           text: m.text,
           isOutgoing: m.isOutgoing,
-          mediaFile: m.media && m.id ? mediaMap.get(m.id) : null
-        }))
-      };
-      zip.file("backup.json", JSON.stringify(jsonData, null, 2));
+          type: m.media?.type || 'chat',
+          mediaBase64: m.media?.dataUrl || null,
+          mimetype: m.media?.mimetype || null,
+          fileName: m.media?.fileName || null
+        })),
+        chatName: chat.name
+      }, 60000);
       
-      // Generate ZIP blob
-      const zipBlob = await zip.generateAsync({type: "blob"});
-      
-      // Clean up
-      scriptEl.remove();
-      
-      await downloadBlob(zipBlob, `${baseName}.zip`);
+      if (result.ok && result.dataUrl) {
+        // Download the ZIP
+        const blob = dataUrlToBlob(result.dataUrl);
+        await downloadBlob(blob, result.filename);
+        return;
+      } else {
+        throw new Error(result.error || 'Falha ao gerar ZIP');
+      }
     } catch (e) {
-      console.error('ZIP generation failed:', e);
-      // Fallback to regular export
+      console.error('[ChatBackup] Falha ao gerar ZIP:', e);
+      // Fallback to regular HTML export
       const content = generateHTML(messages, settings, chat);
       await downloadBlob(new Blob([content], { type: 'text/html;charset=utf-8' }), `${baseName}.html`);
     }
-  }
-
-  function generateHTMLForZip(messages, settings, chat, mediaMap) {
-    let htmlMsgs = "";
-    for (const m of messages) {
-      const cls = m.isOutgoing ? "out" : "in";
-      let mediaHTML = "";
-      if (settings.includeMedia && m.media) {
-        const mediaPath = mediaMap.get(m.id);
-        if (mediaPath) {
-          const safeMediaPath = escHTML(mediaPath);
-          const safeFileName = escHTML(m.media.fileName || 'arquivo');
-          if (m.media.type === "video") {
-            mediaHTML = `<video class="video" controls><source src="${safeMediaPath}">Seu navegador não suporta vídeo.</video>`;
-          } else if (m.media.type === "audio" || m.media.type === "ptt") {
-            mediaHTML = `<audio class="audio" controls><source src="${safeMediaPath}">Seu navegador não suporta áudio.</audio>`;
-          } else if (m.media.type === "document") {
-            mediaHTML = `<div class="media"><a href="${safeMediaPath}" download="${safeFileName}">📎 ${safeFileName}</a></div>`;
-          } else {
-            mediaHTML = `<img class="img" src="${safeMediaPath}" alt="imagem" />`;
-          }
-        } else {
-          const label = m.media.failed ? `${m.media.type} (falhou)` : m.media.type;
-          const fn = m.media.fileName ? ` — ${escHTML(m.media.fileName)}` : "";
-          mediaHTML = `<div class="media">[${escHTML(label)}${fn}]</div>`;
-        }
-      }
-      htmlMsgs += `
-        <div class="msg ${cls}">
-          ${settings.includeSender ? `<div class="sender">${escHTML(m.sender)}</div>` : ""}
-          <div class="text">${escHTML(m.text)}</div>
-          ${mediaHTML}
-          ${settings.includeTimestamps ? `<div class="time">${escHTML(m.timestamp)}</div>` : ""}
-        </div>
-      `;
-    }
-
-    return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WhatsApp - ${escHTML(chat.name)}</title>
-  <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#efeae2;margin:0;padding:18px}
-    .wrap{max-width:860px;margin:0 auto}
-    .head{background:#075E54;color:#fff;padding:16px;border-radius:12px}
-    .head h1{margin:0;font-size:18px}
-    .head p{margin:6px 0 0;font-size:12px;opacity:.85}
-    .chat{margin-top:12px;padding:14px;background:rgba(255,255,255,.65);border-radius:12px}
-    .msg{max-width:70%;padding:10px 12px;border-radius:10px;margin:8px 0;box-shadow:0 1px 0.5px rgba(0,0,0,.13)}
-    .msg.in{background:#fff;margin-right:auto;border-top-left-radius:0}
-    .msg.out{background:#DCF8C6;margin-left:auto;border-top-right-radius:0}
-    .sender{font-weight:700;color:#075E54;font-size:12px;margin-bottom:2px}
-    .text{font-size:14px;white-space:pre-wrap}
-    .time{font-size:11px;color:#667781;text-align:right;margin-top:6px}
-    .media{font-size:12px;color:#5a6b79;background:rgba(0,0,0,.05);padding:8px;border-radius:8px;margin-top:8px}
-    .img{max-width:100%;border-radius:10px;margin-top:8px}
-    .video{max-width:100%;border-radius:10px;margin-top:8px}
-    .audio{width:100%;margin-top:8px}
-    .foot{margin-top:12px;text-align:center;color:#667781;font-size:12px}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="head">
-      <h1>${escHTML(chat.name)}</h1>
-      <p>Exportado em ${new Date().toLocaleString("pt-BR")} • ${messages.length} mensagens</p>
-    </div>
-    <div class="chat">${htmlMsgs}</div>
-    <div class="foot">Exportado com ChatBackup • 100% local</div>
-  </div>
-</body>
-</html>`;
   }
 
   function escCSV(s) { return String(s || "").replace(/"/g, '""').replace(/\n/g, " "); }

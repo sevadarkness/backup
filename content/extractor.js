@@ -403,6 +403,193 @@
     return { ok: false, error: "download_failed" };
   }
 
+  function getExtFromMime(mime, mediaType) {
+    const m = String(mime || "").toLowerCase();
+    // Images
+    if (m.includes("png")) return "png";
+    if (m.includes("webp")) return "webp";
+    if (m.includes("gif")) return "gif";
+    if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+    // Videos
+    if (m.includes("mp4")) return "mp4";
+    if (m.includes("webm")) return "webm";
+    if (m.includes("3gpp")) return "3gp";
+    // Audio
+    if (m.includes("ogg")) return "ogg";
+    if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+    if (m.includes("opus")) return "opus";
+    if (m.includes("aac")) return "aac";
+    // Documents
+    if (m.includes("pdf")) return "pdf";
+    if (m.includes("msword") || m.includes("doc")) return "doc";
+    if (m.includes("spreadsheet") || m.includes("xls")) return "xls";
+    if (m.includes("presentation") || m.includes("ppt")) return "ppt";
+    if (m.includes("zip")) return "zip";
+    if (m.includes("rar")) return "rar";
+    
+    // Fallback based on media type
+    if (mediaType === "video") return "mp4";
+    if (mediaType === "audio" || mediaType === "ptt") return "ogg";
+    if (mediaType === "document") return "pdf";
+    if (mediaType === "image" || mediaType === "sticker") return "jpg";
+    
+    return "bin";
+  }
+
+  function escapeHTML(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function generateHTMLForZip(messages, chatName, mediaMap) {
+    let htmlMsgs = "";
+    for (const m of messages) {
+      const cls = m.isOutgoing ? "out" : "in";
+      let mediaHTML = "";
+      if (m.mediaFile) {
+        const safeMediaPath = escapeHTML(m.mediaFile);
+        const safeFileName = escapeHTML(m.fileName || 'arquivo');
+        if (m.type === "video") {
+          mediaHTML = `<video class="video" controls><source src="${safeMediaPath}">Seu navegador não suporta vídeo.</video>`;
+        } else if (m.type === "audio" || m.type === "ptt") {
+          mediaHTML = `<audio class="audio" controls><source src="${safeMediaPath}">Seu navegador não suporta áudio.</audio>`;
+        } else if (m.type === "document") {
+          mediaHTML = `<div class="media"><a href="${safeMediaPath}" download="${safeFileName}">📎 ${safeFileName}</a></div>`;
+        } else {
+          mediaHTML = `<img class="img" src="${safeMediaPath}" alt="imagem" />`;
+        }
+      }
+      htmlMsgs += `
+        <div class="msg ${cls}">
+          ${m.sender ? `<div class="sender">${escapeHTML(m.sender)}</div>` : ""}
+          <div class="text">${escapeHTML(m.text)}</div>
+          ${mediaHTML}
+          ${m.timestamp ? `<div class="time">${escapeHTML(m.timestamp)}</div>` : ""}
+        </div>
+      `;
+    }
+
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp - ${escapeHTML(chatName)}</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#efeae2;margin:0;padding:18px}
+    .wrap{max-width:860px;margin:0 auto}
+    .head{background:#075E54;color:#fff;padding:16px;border-radius:12px}
+    .head h1{margin:0;font-size:18px}
+    .head p{margin:6px 0 0;font-size:12px;opacity:.85}
+    .chat{margin-top:12px;padding:14px;background:rgba(255,255,255,.65);border-radius:12px}
+    .msg{max-width:70%;padding:10px 12px;border-radius:10px;margin:8px 0;box-shadow:0 1px 0.5px rgba(0,0,0,.13)}
+    .msg.in{background:#fff;margin-right:auto;border-top-left-radius:0}
+    .msg.out{background:#DCF8C6;margin-left:auto;border-top-right-radius:0}
+    .sender{font-weight:700;color:#075E54;font-size:12px;margin-bottom:2px}
+    .text{font-size:14px;white-space:pre-wrap}
+    .time{font-size:11px;color:#667781;text-align:right;margin-top:6px}
+    .media{font-size:12px;color:#5a6b79;background:rgba(0,0,0,.05);padding:8px;border-radius:8px;margin-top:8px}
+    .img{max-width:100%;border-radius:10px;margin-top:8px}
+    .video{max-width:100%;border-radius:10px;margin-top:8px}
+    .audio{width:100%;margin-top:8px}
+    .foot{margin-top:12px;text-align:center;color:#667781;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <h1>${escapeHTML(chatName)}</h1>
+      <p>Exportado em ${new Date().toLocaleString("pt-BR")} • ${messages.length} mensagens</p>
+    </div>
+    <div class="chat">${htmlMsgs}</div>
+    <div class="foot">Exportado com ChatBackup • 100% local</div>
+  </div>
+</body>
+</html>`;
+  }
+
+  async function generateZipExport(payload) {
+    try {
+      // Check if JSZip is available in MAIN world
+      if (typeof JSZip === 'undefined') {
+        console.error('[ChatBackup] JSZip não disponível no mundo MAIN');
+        return { ok: false, error: 'JSZip não disponível' };
+      }
+      
+      const { messages, chatName } = payload;
+      const zip = new JSZip();
+      const mediaFolder = zip.folder("media");
+      
+      let mediaIndex = 0;
+      const mediaMap = new Map();
+      
+      // Add media files to ZIP
+      for (const msg of messages) {
+        if (msg.mediaBase64 && msg.id) {
+          const base64Data = msg.mediaBase64.split(',')[1];
+          if (!base64Data) continue;
+          
+          const ext = getExtFromMime(msg.mimetype, msg.type);
+          const filename = `${msg.type}_${String(mediaIndex).padStart(3, '0')}.${ext}`;
+          
+          mediaFolder.file(filename, base64Data, { base64: true });
+          mediaMap.set(msg.id, `media/${filename}`);
+          mediaIndex++;
+        }
+      }
+      
+      // Prepare messages with media references for HTML
+      const messagesForHTML = messages.map(m => ({
+        ...m,
+        mediaFile: m.id ? mediaMap.get(m.id) : null,
+        fileName: m.fileName
+      }));
+      
+      // Generate HTML with local media references
+      const htmlContent = generateHTMLForZip(messagesForHTML, chatName, mediaMap);
+      zip.file("backup.html", htmlContent);
+      
+      // JSON without base64 (too large)
+      const jsonMessages = messages.map(m => ({
+        timestamp: m.timestamp,
+        sender: m.sender,
+        text: m.text,
+        isOutgoing: m.isOutgoing,
+        type: m.type,
+        mediaFile: m.id ? mediaMap.get(m.id) : null,
+        fileName: m.fileName
+      }));
+      zip.file("backup.json", JSON.stringify({
+        chatName,
+        exportDate: new Date().toISOString(),
+        messageCount: messages.length,
+        messages: jsonMessages
+      }, null, 2));
+      
+      // Generate blob
+      const blob = await zip.generateAsync({ type: "blob" });
+      
+      // Convert blob to base64 for sending via bridge
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve({ ok: true, dataUrl: reader.result, filename: `${chatName}_backup.zip` });
+        };
+        reader.onerror = () => {
+          resolve({ ok: false, error: 'Falha ao converter blob' });
+        };
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.error('[ChatBackup] Erro ao gerar ZIP:', e);
+      return { ok: false, error: String(e?.message || e) };
+    }
+  }
+
   // bridge request handler
   window.addEventListener("message", async (event) => {
     try {
@@ -446,6 +633,12 @@
         const chat = getActiveChat();
         const info = getChatInfo(chat);
         reply(true, info);
+        return;
+      }
+
+      if (data.action === "generateZip") {
+        const res = await generateZipExport(data.payload || {});
+        reply(res.ok, res.ok ? res : null, res.ok ? null : res.error);
         return;
       }
 
