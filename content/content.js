@@ -55,9 +55,28 @@
 
     const subtitle = header.querySelector('[data-testid="conversation-info-header-chat-subtitle"]');
     const isGroup = !!(subtitle?.textContent?.includes(","));
+    
+    // Try to get avatar from header image
     const avatar = header.querySelector("img")?.src || null;
 
     return { name, isGroup, avatar };
+  }
+
+  async function getEnhancedChatInfo() {
+    const basicInfo = detectCurrentChat();
+    if (!basicInfo) return null;
+
+    // Try to get additional info from bridge (including profile pic)
+    try {
+      const chatInfo = await bridge.getChatInfo();
+      if (chatInfo?.profilePic) {
+        return { ...basicInfo, avatar: chatInfo.profilePic };
+      }
+    } catch (e) {
+      // Ignore errors, use basic info
+    }
+
+    return basicInfo;
   }
 
   class Bridge {
@@ -105,6 +124,7 @@
     setCancel(cancel) { return this.request("setCancel", { cancel: !!cancel }, 4000); }
     getActiveChatMessages(opts, timeoutMs) { return this.request("getActiveChatMessages", opts || {}, timeoutMs || 300000); }
     downloadImageDataUrl(msgId, timeoutMs) { return this.request("downloadImageDataUrl", { msgId }, timeoutMs || 30000); }
+    getChatInfo() { return this.request("getChatInfo", {}, 8000); }
   }
 
   let cancelRequested = false;
@@ -137,15 +157,28 @@
         return true;
       }
       if (msg.action === "getStatus") {
-        const connected = checkConnected();
-        const chat = detectCurrentChat();
-        currentChatCache = chat || currentChatCache;
-        sendResponse({
-          connected,
-          currentChat: chat || currentChatCache,
-          stats: { total: 0, media: 0, links: 0, docs: 0 },
-          message: connected ? "Conectado" : "WhatsApp não conectado (faça login no QR Code)"
-        });
+        (async () => {
+          const connected = checkConnected();
+          let chat = detectCurrentChat();
+          
+          // Try to get enhanced info with profile pic
+          if (chat) {
+            try {
+              const enhanced = await getEnhancedChatInfo();
+              if (enhanced) chat = enhanced;
+            } catch (e) {
+              // Use basic chat info
+            }
+          }
+          
+          currentChatCache = chat || currentChatCache;
+          sendResponse({
+            connected,
+            currentChat: chat || currentChatCache,
+            stats: { total: 0, media: 0, links: 0, docs: 0 },
+            message: connected ? "Conectado" : "WhatsApp não conectado (faça login no QR Code)"
+          });
+        })();
         return true;
       }
       if (msg.action === "cancelExport") {
@@ -221,11 +254,28 @@
   function normalizeWAMessages(messages, settings, chat) {
     const out = [];
     const otherName = chat?.name || "Contato";
+    
+    // Parse date filters
+    let fromDate = null;
+    let toDate = null;
+    if (settings.dateFrom) {
+      fromDate = new Date(settings.dateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+    }
+    if (settings.dateTo) {
+      toDate = new Date(settings.dateTo);
+      toDate.setHours(23, 59, 59, 999);
+    }
 
     for (const m of messages) {
       if (cancelRequested) break;
 
       const ts = (typeof m.t === "number") ? new Date(m.t * 1000) : null;
+      
+      // Apply date filter
+      if (ts && fromDate && ts < fromDate) continue;
+      if (ts && toDate && ts > toDate) continue;
+      
       const timestamp = settings.includeTimestamps && ts ? ts.toLocaleString("pt-BR") : "";
 
       const isOutgoing = !!m.fromMe;
@@ -236,7 +286,7 @@
       let media = null;
 
       if (settings.includeMedia && (type === "image" || type === "sticker" || type === "video" || type === "audio" || type === "ptt" || type === "document")) {
-        media = { type, msgId: m.id || null, dataUrl: null, fileName: null, failed: false };
+        media = { type, msgId: m.id || null, dataUrl: null, fileName: null, failed: false, mimetype: m.mimetype || null };
         if (!text) text = `[${type}]`;
       }
 
@@ -251,12 +301,18 @@
   function sanitizeFilename(name) {
     return String(name || "file").replace(/[<>:"/\\|?*]/g, "_").replace(/\s+/g, "_").slice(0, 180);
   }
+  
+  function extractMimeFromDataUrl(dataUrl) {
+    const parts = String(dataUrl).split(",");
+    const meta = parts[0] || "";
+    return (meta.match(/data:([^;]+);/i) || [])[1] || "application/octet-stream";
+  }
 
   function dataUrlToBlob(dataUrl) {
     const parts = String(dataUrl).split(",");
     const meta = parts[0] || "";
     const b64 = parts[1] || "";
-    const mime = (meta.match(/data:([^;]+);/i) || [])[1] || "application/octet-stream";
+    const mime = extractMimeFromDataUrl(dataUrl);
     const bin = atob(b64);
     const arr = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
@@ -353,17 +409,13 @@
         const baseName = sanitizeFilename(`${chat.name}_${i+1}`);
         const fileName = `${baseName}_${msg.media.msgId}.${ext}`;
         msg.media.fileName = fileName;
+        msg.media.mimetype = mime;
 
-        // inline for HTML if size budget allows (images, videos, audio)
-        if (wantInline && inlineTypes.includes(msg.media.type)) {
-          const approx = String(res.dataUrl).length * 0.75;
-          if (inlineTotal + approx <= MAX_INLINE_TOTAL) {
-            msg.media.dataUrl = res.dataUrl;
-            inlineTotal += approx;
-          }
-        }
+        // Always store dataUrl for ZIP generation (if media is included)
+        // We'll use it to create the ZIP file
+        msg.media.dataUrl = res.dataUrl;
 
-        // download file separately if requested
+        // download file separately if requested (in addition to ZIP)
         if (wantFiles) {
           try {
             const blob = dataUrlToBlob(res.dataUrl);
@@ -396,22 +448,182 @@
   async function generateExport(messages, settings, chat) {
     const stamp = new Date().toISOString().slice(0, 10);
     const base = sanitizeFilename(`${chat.name}_${stamp}`);
+    
+    // Check if we have media that needs to be bundled
+    const hasMediaFiles = settings.includeMedia && messages.some(m => m.media && m.media.dataUrl);
 
-    let content = "";
-    let mime = "text/plain;charset=utf-8";
-    let ext = "txt";
-
-    if (settings.format === "csv") {
-      ({ content, mime, ext } = { content: generateCSV(messages, settings), mime: "text/csv;charset=utf-8", ext: "csv" });
-    } else if (settings.format === "json") {
-      ({ content, mime, ext } = { content: JSON.stringify({ chatName: chat.name, exportDate: new Date().toISOString(), messageCount: messages.length, messages }, null, 2), mime: "application/json;charset=utf-8", ext: "json" });
-    } else if (settings.format === "html") {
-      ({ content, mime, ext } = { content: generateHTML(messages, settings, chat), mime: "text/html;charset=utf-8", ext: "html" });
+    // If we have media files, create a ZIP
+    if (hasMediaFiles) {
+      await generateZipExport(messages, settings, chat, base);
     } else {
-      ({ content, mime, ext } = { content: generateTXT(messages, settings, chat), mime: "text/plain;charset=utf-8", ext: "txt" });
+      // Standard single-file export
+      let content = "";
+      let mime = "text/plain;charset=utf-8";
+      let ext = "txt";
+
+      if (settings.format === "csv") {
+        ({ content, mime, ext } = { content: generateCSV(messages, settings), mime: "text/csv;charset=utf-8", ext: "csv" });
+      } else if (settings.format === "json") {
+        ({ content, mime, ext } = { content: JSON.stringify({ chatName: chat.name, exportDate: new Date().toISOString(), messageCount: messages.length, messages }, null, 2), mime: "application/json;charset=utf-8", ext: "json" });
+      } else if (settings.format === "html") {
+        ({ content, mime, ext } = { content: generateHTML(messages, settings, chat), mime: "text/html;charset=utf-8", ext: "html" });
+      } else {
+        ({ content, mime, ext } = { content: generateTXT(messages, settings, chat), mime: "text/plain;charset=utf-8", ext: "txt" });
+      }
+
+      await downloadBlob(new Blob([content], { type: mime }), `${base}.${ext}`);
+    }
+  }
+
+  async function generateZipExport(messages, settings, chat, baseName) {
+    try {
+      // Load JSZip dynamically
+      const jsZipCode = await fetch(chrome.runtime.getURL('libs/jszip.min.js')).then(r => r.text());
+      
+      // Execute JSZip in current context
+      const scriptEl = document.createElement('script');
+      scriptEl.textContent = jsZipCode;
+      document.head.appendChild(scriptEl);
+      
+      // Poll for JSZip to be available (more robust than fixed delay)
+      let attempts = 0;
+      while (typeof JSZip === 'undefined' && attempts < 50) {
+        await new Promise(r => setTimeout(r, 50));
+        attempts++;
+      }
+      
+      if (typeof JSZip === 'undefined') {
+        throw new Error('JSZip failed to load after timeout');
+      }
+      
+      const zip = new JSZip();
+      const mediaFolder = zip.folder("media");
+      
+      let mediaIndex = 0;
+      const mediaMap = new Map();
+      
+      // Extract media files and add to ZIP
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        // Validate msg.id exists before processing
+        if (msg.media && msg.media.dataUrl && msg.id) {
+          const base64Data = msg.media.dataUrl.split(',')[1];
+          const mime = extractMimeFromDataUrl(msg.media.dataUrl);
+          const ext = extFromMime(mime, msg.media.type);
+          const filename = msg.media.type + '_' + String(mediaIndex).padStart(3, '0') + '.' + ext;
+          
+          mediaFolder.file(filename, base64Data, {base64: true});
+          mediaMap.set(msg.id, 'media/' + filename);
+          mediaIndex++;
+        }
+      }
+      
+      // Generate HTML with local media references
+      const htmlContent = generateHTMLForZip(messages, settings, chat, mediaMap);
+      zip.file("backup.html", htmlContent);
+      
+      // Add JSON data
+      const jsonData = {
+        chatName: chat.name,
+        exportDate: new Date().toISOString(),
+        messageCount: messages.length,
+        messages: messages.map(m => ({
+          timestamp: m.timestamp,
+          sender: m.sender,
+          text: m.text,
+          isOutgoing: m.isOutgoing,
+          mediaFile: m.media && m.id ? mediaMap.get(m.id) : null
+        }))
+      };
+      zip.file("backup.json", JSON.stringify(jsonData, null, 2));
+      
+      // Generate ZIP blob
+      const zipBlob = await zip.generateAsync({type: "blob"});
+      
+      // Clean up
+      scriptEl.remove();
+      
+      await downloadBlob(zipBlob, `${baseName}.zip`);
+    } catch (e) {
+      console.error('ZIP generation failed:', e);
+      // Fallback to regular export
+      const content = generateHTML(messages, settings, chat);
+      await downloadBlob(new Blob([content], { type: 'text/html;charset=utf-8' }), `${baseName}.html`);
+    }
+  }
+
+  function generateHTMLForZip(messages, settings, chat, mediaMap) {
+    let htmlMsgs = "";
+    for (const m of messages) {
+      const cls = m.isOutgoing ? "out" : "in";
+      let mediaHTML = "";
+      if (settings.includeMedia && m.media) {
+        const mediaPath = mediaMap.get(m.id);
+        if (mediaPath) {
+          const safeMediaPath = escHTML(mediaPath);
+          const safeFileName = escHTML(m.media.fileName || 'arquivo');
+          if (m.media.type === "video") {
+            mediaHTML = `<video class="video" controls><source src="${safeMediaPath}">Seu navegador não suporta vídeo.</video>`;
+          } else if (m.media.type === "audio" || m.media.type === "ptt") {
+            mediaHTML = `<audio class="audio" controls><source src="${safeMediaPath}">Seu navegador não suporta áudio.</audio>`;
+          } else if (m.media.type === "document") {
+            mediaHTML = `<div class="media"><a href="${safeMediaPath}" download="${safeFileName}">📎 ${safeFileName}</a></div>`;
+          } else {
+            mediaHTML = `<img class="img" src="${safeMediaPath}" alt="imagem" />`;
+          }
+        } else {
+          const label = m.media.failed ? `${m.media.type} (falhou)` : m.media.type;
+          const fn = m.media.fileName ? ` — ${escHTML(m.media.fileName)}` : "";
+          mediaHTML = `<div class="media">[${escHTML(label)}${fn}]</div>`;
+        }
+      }
+      htmlMsgs += `
+        <div class="msg ${cls}">
+          ${settings.includeSender ? `<div class="sender">${escHTML(m.sender)}</div>` : ""}
+          <div class="text">${escHTML(m.text)}</div>
+          ${mediaHTML}
+          ${settings.includeTimestamps ? `<div class="time">${escHTML(m.timestamp)}</div>` : ""}
+        </div>
+      `;
     }
 
-    await downloadBlob(new Blob([content], { type: mime }), `${base}.${ext}`);
+    return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp - ${escHTML(chat.name)}</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#efeae2;margin:0;padding:18px}
+    .wrap{max-width:860px;margin:0 auto}
+    .head{background:#075E54;color:#fff;padding:16px;border-radius:12px}
+    .head h1{margin:0;font-size:18px}
+    .head p{margin:6px 0 0;font-size:12px;opacity:.85}
+    .chat{margin-top:12px;padding:14px;background:rgba(255,255,255,.65);border-radius:12px}
+    .msg{max-width:70%;padding:10px 12px;border-radius:10px;margin:8px 0;box-shadow:0 1px 0.5px rgba(0,0,0,.13)}
+    .msg.in{background:#fff;margin-right:auto;border-top-left-radius:0}
+    .msg.out{background:#DCF8C6;margin-left:auto;border-top-right-radius:0}
+    .sender{font-weight:700;color:#075E54;font-size:12px;margin-bottom:2px}
+    .text{font-size:14px;white-space:pre-wrap}
+    .time{font-size:11px;color:#667781;text-align:right;margin-top:6px}
+    .media{font-size:12px;color:#5a6b79;background:rgba(0,0,0,.05);padding:8px;border-radius:8px;margin-top:8px}
+    .img{max-width:100%;border-radius:10px;margin-top:8px}
+    .video{max-width:100%;border-radius:10px;margin-top:8px}
+    .audio{width:100%;margin-top:8px}
+    .foot{margin-top:12px;text-align:center;color:#667781;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <h1>${escHTML(chat.name)}</h1>
+      <p>Exportado em ${new Date().toLocaleString("pt-BR")} • ${messages.length} mensagens</p>
+    </div>
+    <div class="chat">${htmlMsgs}</div>
+    <div class="foot">Exportado com ChatBackup • 100% local</div>
+  </div>
+</body>
+</html>`;
   }
 
   function escCSV(s) { return String(s || "").replace(/"/g, '""').replace(/\n/g, " "); }

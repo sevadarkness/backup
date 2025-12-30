@@ -1,4 +1,14 @@
-# ChatBackup v1.1.0
+# ChatBackup v1.4.0
+
+## Novidades da versão 1.4.0
+- 📊 **Barra de progresso com porcentagem**: Visualização detalhada do progresso de extração com porcentagem e status
+- 🖼️ **Foto e nome do chat no popup**: Exibição da foto de perfil e nome do chat ativo no popup
+- 📅 **Filtro de período (calendário)**: Filtrar mensagens por data específica (De/Até) usando seletores de data
+- 📦 **Exportação ZIP com mídias**: Todas as mídias agora são exportadas em um único arquivo ZIP contendo:
+  - `backup.html` - Arquivo HTML principal com referências às mídias locais
+  - `backup.json` - Dados brutos em JSON
+  - `media/` - Pasta com todas as mídias (imagens, vídeos, áudios, documentos)
+- ✅ **Mídias visualizáveis**: Após extrair o ZIP, todas as mídias são visualizáveis localmente no HTML
 
 ## Novidades da versão 1.1.0
 - ✨ **Suporte a mais módulos WAWeb**: WAWebMsgCollection, WAWebChatLoadMessages, WAWebDownloadManager

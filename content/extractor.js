@@ -55,6 +55,38 @@
     return CC?.getActive?.() || CC?.getActiveChat?.() || null;
   }
 
+  function getChatInfo(chat) {
+    if (!chat) return null;
+    
+    const name = chat?.name || chat?.formattedTitle || chat?.contact?.pushname || chat?.id?._serialized || "Conversa";
+    const isGroup = !!(chat?.isGroup || chat?.__x_isGroup);
+    
+    // Try to get profile picture
+    // NOTE: These paths depend on WhatsApp Web's internal API structure
+    // and may break with future WhatsApp updates. Multiple fallback paths
+    // are provided to improve compatibility across different versions.
+    let profilePic = null;
+    try {
+      profilePic = chat?.contact?.profilePicThumb?.__x_imgFull || 
+                   chat?.contact?.profilePicThumb?.__x_img || 
+                   chat?.__x_groupMeta?.profilePicThumb?.__x_imgFull ||
+                   chat?.__x_groupMeta?.profilePicThumb?.__x_img ||
+                   chat?.groupMetadata?.profilePicThumb?.__x_imgFull ||
+                   chat?.groupMetadata?.profilePicThumb?.__x_img ||
+                   null;
+    } catch (e) {
+      // Fail silently - profile picture is optional
+      profilePic = null;
+    }
+    
+    return {
+      name,
+      isGroup,
+      profilePic,
+      participants: isGroup ? (chat?.groupMetadata?.participants?.length || null) : null
+    };
+  }
+
   function getMsgsArray(chat) {
     const msgs = chat?.msgs || chat?.msgCollection || chat?.__x_msgs || null;
     if (!msgs) return [];
@@ -391,6 +423,13 @@
       if (data.action === "downloadImageDataUrl") {
         const res = await downloadImageDataUrl(data.payload || {});
         reply(true, res);
+        return;
+      }
+
+      if (data.action === "getChatInfo") {
+        const chat = getActiveChat();
+        const info = getChatInfo(chat);
+        reply(true, info);
         return;
       }
 

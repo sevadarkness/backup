@@ -16,7 +16,7 @@
           <div class="subtitle">Backup do WhatsApp Web</div>
         </div>
       </div>
-      <div class="version">v1.1.0</div>
+      <div class="version">v1.4.0</div>
     </header>
 
     <div id="status" class="status">
@@ -30,7 +30,10 @@
 
     <div id="chatCard" class="card hidden">
       <div class="chatRow">
-        <div class="avatar">💬</div>
+        <div class="avatar" id="chatAvatar">
+          <img id="chatPhoto" src="" style="display: none; width: 40px; height: 40px; border-radius: 12px;" alt="Chat" />
+          <span id="chatIcon">💬</span>
+        </div>
         <div class="chatInfo">
           <div class="chatName" id="chatName">—</div>
           <div class="chatMeta" id="chatMeta">—</div>
@@ -58,6 +61,19 @@
         <option value="100000">100.000</option>
         <option value="-1">Todas</option>
       </select>
+
+      <label class="label">Filtro de Período</label>
+      <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <div style="flex: 1;">
+          <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px;">De:</label>
+          <input type="date" id="dateFrom" class="select" style="padding: 8px;" />
+        </div>
+        <div style="flex: 1;">
+          <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px;">Até:</label>
+          <input type="date" id="dateTo" class="select" style="padding: 8px;" />
+        </div>
+      </div>
+      <div style="font-size: 10px; color: var(--muted); margin-bottom: 8px;">Deixe vazio para exportar tudo</div>
 
       <label class="check"><input id="incTs" type="checkbox" checked /> Incluir data/hora</label>
       <label class="check"><input id="incSender" type="checkbox" checked /> Incluir remetente</label>

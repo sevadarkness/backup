@@ -7,9 +7,13 @@ const wrongPage = el("wrongPage");
 const chatCard = el("chatCard");
 const chatName = el("chatName");
 const chatMeta = el("chatMeta");
+const chatPhoto = el("chatPhoto");
+const chatIcon = el("chatIcon");
 
 const format = el("format");
 const limit = el("limit");
+const dateFrom = el("dateFrom");
+const dateTo = el("dateTo");
 const incTs = el("incTs");
 const incSender = el("incSender");
 const incMedia = el("incMedia");
@@ -84,6 +88,16 @@ async function refreshUI() {
   chatCard.classList.remove("hidden");
   chatName.textContent = st.currentChat?.name || "Selecione uma conversa";
   chatMeta.textContent = st.currentChat?.isGroup ? "👥 Grupo" : "👤 Conversa";
+  
+  // Update chat photo if available
+  if (st.currentChat?.avatar) {
+    chatPhoto.src = st.currentChat.avatar;
+    chatPhoto.style.display = "block";
+    chatIcon.style.display = "none";
+  } else {
+    chatPhoto.style.display = "none";
+    chatIcon.style.display = "block";
+  }
 }
 
 btnExport.addEventListener("click", async () => {
@@ -99,7 +113,9 @@ btnExport.addEventListener("click", async () => {
     includeMedia: !!incMedia.checked,
     includeTimestamps: !!incTs.checked,
     includeSender: !!incSender.checked,
-    downloadMediaFiles: !!dlMedia.checked
+    downloadMediaFiles: !!dlMedia.checked,
+    dateFrom: dateFrom.value || null,
+    dateTo: dateTo.value || null
   };
 
   const res = await chrome.runtime.sendMessage({ action: "startBackup", settings });
@@ -138,6 +154,16 @@ chrome.runtime.onMessage.addListener((msg) => {
     chatCard.classList.remove("hidden");
     chatName.textContent = msg.chat?.name || "Conversa";
     chatMeta.textContent = msg.chat?.isGroup ? "👥 Grupo" : "👤 Conversa";
+    
+    // Update chat photo if available
+    if (msg.chat?.avatar) {
+      chatPhoto.src = msg.chat.avatar;
+      chatPhoto.style.display = "block";
+      chatIcon.style.display = "none";
+    } else {
+      chatPhoto.style.display = "none";
+      chatIcon.style.display = "block";
+    }
   }
 });
 
