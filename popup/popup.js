@@ -6,8 +6,6 @@ const STORAGE_KEYS = {
   LIMIT: 'chatbackup_limit',
   INC_TS: 'chatbackup_inc_ts',
   INC_SENDER: 'chatbackup_inc_sender',
-  INC_MEDIA: 'chatbackup_inc_media',
-  DL_MEDIA: 'chatbackup_dl_media',
   DATE_FROM: 'chatbackup_date_from',
   DATE_TO: 'chatbackup_date_to',
   LAST_CHAT: 'chatbackup_last_chat',
@@ -30,8 +28,6 @@ const dateFrom = el("dateFrom");
 const dateTo = el("dateTo");
 const incTs = el("incTs");
 const incSender = el("incSender");
-const incMedia = el("incMedia");
-const dlMedia = el("dlMedia");
 
 const btnExport = el("btnExport");
 const btnCancel = el("btnCancel");
@@ -50,8 +46,6 @@ function saveSettings() {
   localStorage.setItem(STORAGE_KEYS.LIMIT, limit.value);
   localStorage.setItem(STORAGE_KEYS.INC_TS, incTs.checked);
   localStorage.setItem(STORAGE_KEYS.INC_SENDER, incSender.checked);
-  localStorage.setItem(STORAGE_KEYS.INC_MEDIA, incMedia.checked);
-  localStorage.setItem(STORAGE_KEYS.DL_MEDIA, dlMedia.checked);
   
   if (dateFrom) localStorage.setItem(STORAGE_KEYS.DATE_FROM, dateFrom.value);
   if (dateTo) localStorage.setItem(STORAGE_KEYS.DATE_TO, dateTo.value);
@@ -63,8 +57,6 @@ function loadSettings() {
   const savedLimit = localStorage.getItem(STORAGE_KEYS.LIMIT);
   const savedIncTs = localStorage.getItem(STORAGE_KEYS.INC_TS);
   const savedIncSender = localStorage.getItem(STORAGE_KEYS.INC_SENDER);
-  const savedIncMedia = localStorage.getItem(STORAGE_KEYS.INC_MEDIA);
-  const savedDlMedia = localStorage.getItem(STORAGE_KEYS.DL_MEDIA);
   const savedDateFrom = localStorage.getItem(STORAGE_KEYS.DATE_FROM);
   const savedDateTo = localStorage.getItem(STORAGE_KEYS.DATE_TO);
   
@@ -72,8 +64,6 @@ function loadSettings() {
   if (savedLimit) limit.value = savedLimit;
   if (savedIncTs !== null) incTs.checked = savedIncTs === 'true';
   if (savedIncSender !== null) incSender.checked = savedIncSender === 'true';
-  if (savedIncMedia !== null) incMedia.checked = savedIncMedia === 'true';
-  if (savedDlMedia !== null) dlMedia.checked = savedDlMedia === 'true';
   
   if (dateFrom && savedDateFrom) dateFrom.value = savedDateFrom;
   if (dateTo && savedDateTo) dateTo.value = savedDateTo;
@@ -190,10 +180,8 @@ btnExport.addEventListener("click", async () => {
   const settings = {
     format: format.value,
     messageLimit: parseInt(limit.value, 10),
-    includeMedia: !!incMedia.checked,
     includeTimestamps: !!incTs.checked,
     includeSender: !!incSender.checked,
-    downloadMediaFiles: !!dlMedia.checked,
     dateFrom: dateFrom.value || null,
     dateTo: dateTo.value || null
   };
@@ -266,8 +254,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   limit.addEventListener('change', saveSettings);
   incTs.addEventListener('change', saveSettings);
   incSender.addEventListener('change', saveSettings);
-  incMedia.addEventListener('change', saveSettings);
-  dlMedia.addEventListener('change', saveSettings);
   if (dateFrom) dateFrom.addEventListener('change', saveSettings);
   if (dateTo) dateTo.addEventListener('change', saveSettings);
   
