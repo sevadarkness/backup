@@ -48,7 +48,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "content/extractor.js"
+        "content/extractor.js",
+        "libs/jszip.min.js"
       ],
       "matches": [
         "https://web.whatsapp.com/*"

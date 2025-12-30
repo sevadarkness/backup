@@ -468,73 +468,67 @@
   }
 
   async function generateZipExport(messages, settings, chat, baseName) {
-    // Load JSZip from the window context (loaded in popup)
-    // We need to use it via messaging or inject it
-    const jsZipCode = await fetch(chrome.runtime.getURL('libs/jszip.min.js')).then(r => r.text());
-    
-    // Create a new Function context to use JSZip
-    const createZip = new Function('messages', 'settings', 'chat', 'baseName', 
-      'generateHTML', 'generateHTMLForZip', 'dataUrlToBlob', 'extFromMime', 'sanitizeFilename',
-      jsZipCode + `
-      return (async function() {
-        const zip = new JSZip();
-        const mediaFolder = zip.folder("media");
-        
-        let mediaIndex = 0;
-        const mediaMap = new Map();
-        
-        // Extract media files and add to ZIP
-        for (let i = 0; i < messages.length; i++) {
-          const msg = messages[i];
-          if (msg.media && msg.media.dataUrl) {
-            const base64Data = msg.media.dataUrl.split(',')[1];
-            const mime = msg.media.dataUrl.split(',')[0].match(/data:([^;]+);/)?.[1] || 'application/octet-stream';
-            const ext = extFromMime(mime, msg.media.type);
-            const filename = msg.media.type + '_' + String(mediaIndex).padStart(3, '0') + '.' + ext;
-            
-            mediaFolder.file(filename, base64Data, {base64: true});
-            mediaMap.set(msg.id, 'media/' + filename);
-            mediaIndex++;
-          }
-        }
-        
-        // Generate HTML with local media references
-        const htmlContent = generateHTMLForZip(messages, settings, chat, mediaMap);
-        zip.file("backup.html", htmlContent);
-        
-        // Add JSON data
-        const jsonData = {
-          chatName: chat.name,
-          exportDate: new Date().toISOString(),
-          messageCount: messages.length,
-          messages: messages.map(m => ({
-            timestamp: m.timestamp,
-            sender: m.sender,
-            text: m.text,
-            isOutgoing: m.isOutgoing,
-            mediaFile: m.media && m.id ? mediaMap.get(m.id) : null
-          }))
-        };
-        zip.file("backup.json", JSON.stringify(jsonData, null, 2));
-        
-        // Generate ZIP blob
-        const zipBlob = await zip.generateAsync({type: "blob"});
-        return zipBlob;
-      })();
-    `);
-    
     try {
-      const zipBlob = await createZip(
-        messages, 
-        settings, 
-        chat, 
-        baseName,
-        generateHTML,
-        generateHTMLForZip,
-        dataUrlToBlob,
-        extFromMime,
-        sanitizeFilename
-      );
+      // Load JSZip dynamically
+      const jsZipCode = await fetch(chrome.runtime.getURL('libs/jszip.min.js')).then(r => r.text());
+      
+      // Execute JSZip in current context
+      const scriptEl = document.createElement('script');
+      scriptEl.textContent = jsZipCode;
+      document.head.appendChild(scriptEl);
+      
+      // Wait a bit for JSZip to load
+      await new Promise(r => setTimeout(r, 100));
+      
+      if (typeof JSZip === 'undefined') {
+        throw new Error('JSZip not loaded');
+      }
+      
+      const zip = new JSZip();
+      const mediaFolder = zip.folder("media");
+      
+      let mediaIndex = 0;
+      const mediaMap = new Map();
+      
+      // Extract media files and add to ZIP
+      for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (msg.media && msg.media.dataUrl) {
+          const base64Data = msg.media.dataUrl.split(',')[1];
+          const mime = msg.media.dataUrl.split(',')[0].match(/data:([^;]+);/)?.[1] || 'application/octet-stream';
+          const ext = extFromMime(mime, msg.media.type);
+          const filename = msg.media.type + '_' + String(mediaIndex).padStart(3, '0') + '.' + ext;
+          
+          mediaFolder.file(filename, base64Data, {base64: true});
+          mediaMap.set(msg.id, 'media/' + filename);
+          mediaIndex++;
+        }
+      }
+      
+      // Generate HTML with local media references
+      const htmlContent = generateHTMLForZip(messages, settings, chat, mediaMap);
+      zip.file("backup.html", htmlContent);
+      
+      // Add JSON data
+      const jsonData = {
+        chatName: chat.name,
+        exportDate: new Date().toISOString(),
+        messageCount: messages.length,
+        messages: messages.map(m => ({
+          timestamp: m.timestamp,
+          sender: m.sender,
+          text: m.text,
+          isOutgoing: m.isOutgoing,
+          mediaFile: m.media && m.id ? mediaMap.get(m.id) : null
+        }))
+      };
+      zip.file("backup.json", JSON.stringify(jsonData, null, 2));
+      
+      // Generate ZIP blob
+      const zipBlob = await zip.generateAsync({type: "blob"});
+      
+      // Clean up
+      scriptEl.remove();
       
       await downloadBlob(zipBlob, `${baseName}.zip`);
     } catch (e) {
