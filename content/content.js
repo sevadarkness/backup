@@ -157,26 +157,28 @@
         return true;
       }
       if (msg.action === "getStatus") {
-        const connected = checkConnected();
-        let chat = detectCurrentChat();
-        
-        // Try to get enhanced info with profile pic
-        if (chat) {
-          try {
-            const enhanced = await getEnhancedChatInfo();
-            if (enhanced) chat = enhanced;
-          } catch (e) {
-            // Use basic chat info
+        (async () => {
+          const connected = checkConnected();
+          let chat = detectCurrentChat();
+          
+          // Try to get enhanced info with profile pic
+          if (chat) {
+            try {
+              const enhanced = await getEnhancedChatInfo();
+              if (enhanced) chat = enhanced;
+            } catch (e) {
+              // Use basic chat info
+            }
           }
-        }
-        
-        currentChatCache = chat || currentChatCache;
-        sendResponse({
-          connected,
-          currentChat: chat || currentChatCache,
-          stats: { total: 0, media: 0, links: 0, docs: 0 },
-          message: connected ? "Conectado" : "WhatsApp não conectado (faça login no QR Code)"
-        });
+          
+          currentChatCache = chat || currentChatCache;
+          sendResponse({
+            connected,
+            currentChat: chat || currentChatCache,
+            stats: { total: 0, media: 0, links: 0, docs: 0 },
+            message: connected ? "Conectado" : "WhatsApp não conectado (faça login no QR Code)"
+          });
+        })();
         return true;
       }
       if (msg.action === "cancelExport") {
