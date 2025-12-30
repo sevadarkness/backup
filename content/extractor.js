@@ -415,8 +415,11 @@
         if (response.ok) {
           return await response.arrayBuffer();
         }
+        // Log non-ok responses for debugging
+        console.debug(`[ChatBackup] CDN ${cdn} returned status ${response.status}`);
       } catch (e) {
         lastError = e;
+        console.debug(`[ChatBackup] CDN ${cdn} failed:`, e.message);
         continue;
       }
     }
@@ -512,7 +515,8 @@
         const response = await fetch(msg.deprecatedMms3Url);
         if (response.ok) {
           const blob = await response.blob();
-          if (blob.size > 0 && blob.type.includes('webp')) {
+          // Verificar se é um sticker válido (qualquer tipo de imagem com tamanho > 0)
+          if (blob.size > 0 && (blob.type.includes('webp') || blob.type.includes('image/'))) {
             return blob;
           }
         }
