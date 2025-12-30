@@ -60,6 +60,25 @@ let selectedChatId = null;
 
 let exporting = false;
 
+// Toast notification function (não-bloqueante)
+function showToast(message, type = 'success', duration = 5000) {
+  const toast = el('toast');
+  const toastIcon = el('toastIcon');
+  const toastMessage = el('toastMessage');
+  
+  toastIcon.textContent = type === 'success' ? '✅' : '❌';
+  toastMessage.textContent = message;
+  
+  toast.className = `toast ${type}`;
+  toast.classList.remove('hidden');
+  
+  // Auto-hide after duration
+  setTimeout(() => {
+    toast.classList.add('hidden');
+  }, duration);
+}
+
+
 // Salvar configurações
 function saveSettings() {
   localStorage.setItem(STORAGE_KEYS.FORMAT, format.value);
@@ -302,7 +321,7 @@ btnLoadContacts.addEventListener("click", async () => {
   try {
     const chk = await checkActiveWhatsApp();
     if (!chk.ok) {
-      alert("Abra o WhatsApp Web primeiro!");
+      showToast("Abra o WhatsApp Web primeiro!", 'error');
       return;
     }
     
@@ -312,7 +331,7 @@ btnLoadContacts.addEventListener("click", async () => {
       renderContacts(allContacts);
       contactsContainer.classList.remove("hidden");
     } else {
-      alert("Falha ao carregar contatos: " + (res?.error || "Erro desconhecido"));
+      showToast("Falha ao carregar contatos: " + (res?.error || "Erro desconhecido"), 'error');
     }
   } finally {
     btnLoadContacts.disabled = false;
@@ -367,7 +386,7 @@ btnExport.addEventListener("click", async () => {
     btnExport.disabled = false;
     showProgress(false);
     clearExportProgress();
-    alert("❌ " + (res?.error || "Falha ao iniciar"));
+    showToast(res?.error || "Falha ao iniciar", 'error');
   }
 });
 
@@ -383,6 +402,12 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "progress") {
     updateProgress(msg);
     saveExportProgress(msg);
+    
+    // Mostrar aviso discreto de que exportação continua mesmo fechando popup
+    if (msg.percent > 0 && msg.percent < 100) {
+      const hint = el('exportHint');
+      if (hint) hint.style.display = 'block';
+    }
   }
   if (msg.type === "mediaProgressDetailed") {
     updateMediaProgress(msg.data);
@@ -393,7 +418,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     showProgress(false);
     hideMediaProgress();
     clearExportProgress();
-    alert(`✅ Exportação concluída! ${msg.count} mensagens.`);
+    const hint = el('exportHint');
+    if (hint) hint.style.display = 'none';
+    showToast(`Exportação concluída! ${msg.count} mensagens.`, 'success');
     refreshUI();
   }
   if (msg.type === "error") {
@@ -402,7 +429,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     showProgress(false);
     hideMediaProgress();
     clearExportProgress();
-    alert("❌ " + msg.error);
+    const hint = el('exportHint');
+    if (hint) hint.style.display = 'none';
+    showToast(msg.error, 'error');
     refreshUI();
   }
   if (msg.type === "chatUpdate") {

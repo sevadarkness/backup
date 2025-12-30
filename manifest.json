@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "ChatBackup - WhatsApp Export",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "Exporta conversas do WhatsApp Web (HTML/CSV/JSON/TXT) com histórico completo via API interna (WAWeb*). Processamento 100% local.",
   "permissions": [
     "activeTab",
     "storage",
-    "downloads"
+    "downloads",
+    "notifications"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*"
