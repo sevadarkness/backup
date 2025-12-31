@@ -16,6 +16,21 @@
       var module = undefined;
       var exports = undefined;
       var define = undefined;
+      
+      // Stub require para módulos Node.js que JSZip tenta usar
+      var _origRequire = typeof require !== 'undefined' ? require : undefined;
+      var require = function(name) {
+        // Retornar stubs para módulos Node.js
+        if (name === 'stream') return { Readable: function() {} };
+        if (name === 'readable-stream') return { Readable: function() {} };
+        if (name === 'buffer') return { Buffer: typeof Buffer !== 'undefined' ? Buffer : {} };
+        // Para outros módulos, tentar require original se existir
+        if (_origRequire) {
+          try { return _origRequire(name); } catch(e) { return {}; }
+        }
+        return {};
+      };
+      
       // BEGIN bundled JSZip (libs/jszip.min.js)
       
 /*!
