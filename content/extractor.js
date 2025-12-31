@@ -11,25 +11,26 @@
   // ========================================================================
   function ensureJSZipBundled() {
     if (window.JSZip) return window.JSZip;
+    
+    // Salvar require original do WhatsApp
+    var _savedRequire = window.require;
+    
+    // Sobrescrever globalmente com stub para módulos Node.js
+    window.require = function(name) {
+      if (name === 'stream') return { Readable: function() {} };
+      if (name === 'readable-stream') return { Readable: function() {} };
+      if (name === 'buffer') return {};
+      if (_savedRequire) {
+        try { return _savedRequire(name); } catch(e) { return {}; }
+      }
+      return {};
+    };
+    
     try {
       // Shadow AMD/CommonJS globals so JSZip UMD always attaches to window
       var module = undefined;
       var exports = undefined;
       var define = undefined;
-      
-      // Stub require para módulos Node.js que JSZip tenta usar
-      var _origRequire = typeof require !== 'undefined' ? require : undefined;
-      var require = function(name) {
-        // Retornar stubs para módulos Node.js
-        if (name === 'stream') return { Readable: function() {} };
-        if (name === 'readable-stream') return { Readable: function() {} };
-        if (name === 'buffer') return { Buffer: typeof Buffer !== 'undefined' ? Buffer : {} };
-        // Para outros módulos, tentar require original se existir
-        if (_origRequire) {
-          try { return _origRequire(name); } catch(e) { return {}; }
-        }
-        return {};
-      };
       
       // BEGIN bundled JSZip (libs/jszip.min.js)
       
@@ -49,6 +50,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       // END bundled JSZip
     } catch (e) {
       console.error('[ChatBackup] Bundled JSZip init failed:', e);
+    } finally {
+      // Restaurar require original do WhatsApp
+      window.require = _savedRequire;
     }
     return window.JSZip;
   }
