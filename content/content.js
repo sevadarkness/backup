@@ -31,19 +31,68 @@
     };
     
     if (!document.getElementById(jszipId)) {
-      const jszip = document.createElement("script");
-      jszip.id = jszipId;
-      jszip.src = chrome.runtime.getURL("libs/jszip.min.js");
-      jszip.onload = () => {
-        console.log('[ChatBackup] JSZip loaded in MAIN world');
-        injectExtractor();
-      };
-      jszip.onerror = () => {
-        console.error('[ChatBackup] Failed to load JSZip, trying extractor anyway');
-        injectExtractor();
-      };
-      (document.head || document.documentElement).appendChild(jszip);
+      // Fetch JSZip content and inject with wrapper to force window.JSZip
+      fetch(chrome.runtime.getURL("libs/jszip.min.js"))
+        .then(response => response.text())
+        .then(jszipCode => {
+          const script = document.createElement("script");
+          script.id = jszipId;
+          
+          // Wrapper que força JSZip para window global
+          // Salva e remove define/module temporariamente para forçar modo browser
+          script.textContent = `
+            (function() {
+              var _define = window.define;
+              var _module = window.module;
+              var _exports = window.exports;
+              
+              // Remover temporariamente para forçar modo browser
+              try { delete window.define; } catch(e) { window.define = undefined; }
+              try { delete window.module; } catch(e) { window.module = undefined; }
+              try { delete window.exports; } catch(e) { window.exports = undefined; }
+              
+              // Código do JSZip
+              ${jszipCode}
+              
+              // Restaurar
+              if (_define !== undefined) window.define = _define;
+              if (_module !== undefined) window.module = _module;
+              if (_exports !== undefined) window.exports = _exports;
+              
+              console.log('[ChatBackup] JSZip forced to window.JSZip:', typeof window.JSZip);
+            })();
+          `;
+          
+          (document.head || document.documentElement).appendChild(script);
+          
+          // Aguardar um pouco e verificar se JSZip está disponível
+          setTimeout(() => {
+            if (typeof window.JSZip !== 'undefined') {
+              console.log('[ChatBackup] JSZip confirmed in window.JSZip');
+            } else {
+              console.error('[ChatBackup] JSZip still not in window after wrapper');
+            }
+            injectExtractor();
+          }, 50);
+        })
+        .catch(err => {
+          console.error('[ChatBackup] Failed to fetch JSZip:', err);
+          // Fallback: tentar injetar diretamente
+          const jszip = document.createElement("script");
+          jszip.id = jszipId;
+          jszip.src = chrome.runtime.getURL("libs/jszip.min.js");
+          jszip.onload = () => {
+            console.log('[ChatBackup] JSZip fallback loaded');
+            injectExtractor();
+          };
+          jszip.onerror = () => {
+            console.error('[ChatBackup] JSZip fallback failed');
+            injectExtractor();
+          };
+          (document.head || document.documentElement).appendChild(jszip);
+        });
     } else {
+      // JSZip já existe
       injectExtractor();
     }
   }
