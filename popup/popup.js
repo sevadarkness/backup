@@ -340,7 +340,7 @@ function updateContactsCounter() {
   contactsSection.style.display = totalContacts > 0 ? 'block' : 'none';
 }
 
-function renderContactItems(contacts, container, isGroup) {
+function renderContactItems(contacts, isGroup) {
   return contacts.map(c => `
     <div class="contact-item ${c.id === selectedChatId ? 'selected' : ''}" data-id="${c.id}" data-isgroup="${isGroup}">
       <span class="icon">${isGroup ? '👥' : '👤'}</span>
@@ -357,11 +357,11 @@ function renderContacts() {
   
   // Render groups (up to displayedGroupsCount)
   const groupsToShow = sortedGroups.slice(0, displayedGroupsCount);
-  groupsList.innerHTML = renderContactItems(groupsToShow, groupsList, true);
+  groupsList.innerHTML = renderContactItems(groupsToShow, true);
   
   // Render contacts (up to displayedContactsCount)
   const contactsToShow = sortedContacts.slice(0, displayedContactsCount);
-  contactsList.innerHTML = renderContactItems(contactsToShow, contactsList, false);
+  contactsList.innerHTML = renderContactItems(contactsToShow, false);
   
   // Add event listeners
   document.querySelectorAll('.contact-item').forEach(item => {
@@ -395,18 +395,27 @@ function filterAndRenderContacts(query = '') {
 }
 
 function loadMoreContacts() {
+  // Calculate remaining items
   const remainingGroups = filteredGroups.length - displayedGroupsCount;
   const remainingContacts = filteredContacts.length - displayedContactsCount;
+  const totalRemaining = remainingGroups + remainingContacts;
   
+  if (totalRemaining === 0) return;
+  
+  // Load up to ITEMS_PER_PAGE more items, prioritizing groups first
+  let toLoad = Math.min(ITEMS_PER_PAGE, totalRemaining);
+  
+  // Load groups first
   if (remainingGroups > 0) {
-    displayedGroupsCount = Math.min(displayedGroupsCount + ITEMS_PER_PAGE, filteredGroups.length);
+    const groupsToAdd = Math.min(toLoad, remainingGroups);
+    displayedGroupsCount += groupsToAdd;
+    toLoad -= groupsToAdd;
   }
   
-  if (remainingContacts > 0 && remainingGroups === 0) {
-    displayedContactsCount = Math.min(displayedContactsCount + ITEMS_PER_PAGE, filteredContacts.length);
-  } else if (remainingContacts > 0) {
-    const leftover = ITEMS_PER_PAGE - Math.min(remainingGroups, ITEMS_PER_PAGE);
-    displayedContactsCount = Math.min(displayedContactsCount + leftover, filteredContacts.length);
+  // Then load contacts with remaining quota
+  if (toLoad > 0 && remainingContacts > 0) {
+    const contactsToAdd = Math.min(toLoad, remainingContacts);
+    displayedContactsCount += contactsToAdd;
   }
   
   renderContacts();

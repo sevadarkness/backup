@@ -211,16 +211,19 @@
         });
       }
       
-      // Calculate percentage based on media type
+      // Calculate percentage based on media type with non-overlapping ranges
+      // Images: 50-60%, Videos: 60-70%, Audios: 70-78%, Docs: 78-85%
+      const progressRanges = {
+        images: { start: 50, range: 10 },
+        videos: { start: 60, range: 10 },
+        audios: { start: 70, range: 8 },
+        docs: { start: 78, range: 7 }
+      };
+      
       let percent = 50;
-      if (groupName === 'images') {
-        percent = 50 + Math.round((current / Math.max(total, 1)) * 10); // 50-60%
-      } else if (groupName === 'videos') {
-        percent = 60 + Math.round((current / Math.max(total, 1)) * 10); // 60-70%
-      } else if (groupName === 'audios') {
-        percent = 70 + Math.round((current / Math.max(total, 1)) * 8); // 70-78%
-      } else if (groupName === 'docs') {
-        percent = 78 + Math.round((current / Math.max(total, 1)) * 7); // 78-85%
+      if (progressRanges[groupName]) {
+        const { start, range } = progressRanges[groupName];
+        percent = start + Math.round((current / Math.max(total, 1)) * range);
       }
       
       const failedText = failed > 0 ? ` - ${failed} falharam` : '';
