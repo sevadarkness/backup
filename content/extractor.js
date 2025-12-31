@@ -6,6 +6,91 @@
   if (window.__CHATBACKUP_BRIDGE_READY__) return;
   window.__CHATBACKUP_BRIDGE_READY__ = true;
 
+  // ========================================================================
+  // JSZip Bundled Loader - Ensures window.JSZip is available
+  // ========================================================================
+  function ensureJSZipBundled() {
+    if (window.JSZip) {
+      console.log('[ChatBackup] JSZip already loaded');
+      return Promise.resolve();
+    }
+
+    console.log('[ChatBackup] Loading bundled JSZip as fallback...');
+    
+    return new Promise((resolve, reject) => {
+      // Shadow AMD/CommonJS globals to force JSZip to register on window
+      const origDefine = window.define;
+      const origModule = window.module;
+      const origExports = window.exports;
+      
+      try {
+        window.define = undefined;
+        window.module = undefined;
+        window.exports = undefined;
+        
+        // Try to load from extension resources
+        const script = document.createElement('script');
+        script.src = chrome.runtime?.getURL?.('libs/jszip.min.js') || '/libs/jszip.min.js';
+        
+        script.onload = () => {
+          console.log('[ChatBackup] Bundled JSZip loaded successfully');
+          
+          // Restore original globals
+          if (origDefine !== undefined) window.define = origDefine;
+          else delete window.define;
+          
+          if (origModule !== undefined) window.module = origModule;
+          else delete window.module;
+          
+          if (origExports !== undefined) window.exports = origExports;
+          else delete window.exports;
+          
+          script.remove();
+          resolve();
+        };
+        
+        script.onerror = (error) => {
+          console.error('[ChatBackup] Error loading bundled JSZip:', error);
+          
+          // Restore original globals
+          if (origDefine !== undefined) window.define = origDefine;
+          else delete window.define;
+          
+          if (origModule !== undefined) window.module = origModule;
+          else delete window.module;
+          
+          if (origExports !== undefined) window.exports = origExports;
+          else delete window.exports;
+          
+          script.remove();
+          reject(error);
+        };
+        
+        (document.head || document.documentElement).appendChild(script);
+      } catch (error) {
+        console.error('[ChatBackup] Error setting up JSZip loader:', error);
+        
+        // Restore original globals
+        if (origDefine !== undefined) window.define = origDefine;
+        else delete window.define;
+        
+        if (origModule !== undefined) window.module = origModule;
+        else delete window.module;
+        
+        if (origExports !== undefined) window.exports = origExports;
+        else delete window.exports;
+        
+        reject(error);
+      }
+    });
+  }
+
+  // Initialize JSZip immediately (async)
+  ensureJSZipBundled().catch(err => {
+    console.error('[ChatBackup] Failed to initialize JSZip:', err);
+  });
+  // ========================================================================
+
   const BRIDGE_NS = "chatbackup_bridge_v1";
   window.__CHATBACKUP_CANCEL__ = false;
 
