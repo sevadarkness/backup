@@ -594,16 +594,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
 
   async function downloadMediaForExport(messages, options = {}) {
-    const { exportImages, exportAudios, exportDocs } = options;
+    const { exportImages, exportVideos, exportAudios, exportDocs } = options;
     
-    if (!exportImages && !exportAudios && !exportDocs) {
-      return { images: [], audios: [], docs: [] };
+    if (!exportImages && !exportVideos && !exportAudios && !exportDocs) {
+      return { images: [], videos: [], audios: [], docs: [] };
     }
     
     const dm = tryRequire('WAWebDownloadManager')?.downloadManager;
     
     const mediaGroups = {
       images: [],  // type: image, sticker
+      videos: [],  // type: video
       audios: [],  // type: ptt, audio
       docs: []     // type: document
     };
@@ -639,8 +640,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
       }
       
-      if (exportImages && (type === 'image' || type === 'sticker' || type === 'video')) {
+      if (exportImages && (type === 'image' || type === 'sticker')) {
         mediaGroups.images.push(msg);
+      } else if (exportVideos && type === 'video') {
+        mediaGroups.videos.push(msg);
       } else if (exportAudios && (type === 'ptt' || type === 'audio')) {
         mediaGroups.audios.push(msg);
       } else if (exportDocs && type === 'document') {
@@ -648,7 +651,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
     }
     
-    const results = { images: [], audios: [], docs: [] };
+    const results = { images: [], videos: [], audios: [], docs: [] };
     
     // Download each group with concurrency control
     const downloadWithLimit = async (group, groupName) => {
@@ -750,6 +753,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       await downloadWithLimit(mediaGroups.images, 'images');
     }
     
+    if (exportVideos && mediaGroups.videos.length > 0) {
+      await downloadWithLimit(mediaGroups.videos, 'videos');
+    }
+    
     if (exportAudios && mediaGroups.audios.length > 0) {
       await downloadWithLimit(mediaGroups.audios, 'audios');
     }
@@ -759,7 +766,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     
     // Create ZIPs internally and return blob URLs instead of blob objects
-    const zipResults = { images: null, audios: null, docs: null };
+    const zipResults = { images: null, videos: null, audios: null, docs: null };
     
     // Helper function to create ZIP internally and return blob URL
     const createZipInternal = async (mediaFiles, zipName, groupName) => {
@@ -819,6 +826,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     
     if (exportImages && results.images.length > 0) {
       zipResults.images = await createZipInternal(results.images, 'images.zip', 'images');
+    }
+    
+    if (exportVideos && results.videos.length > 0) {
+      zipResults.videos = await createZipInternal(results.videos, 'videos.zip', 'videos');
     }
     
     if (exportAudios && results.audios.length > 0) {

@@ -38,6 +38,13 @@
 .progressBottom{font-size:12px;color:var(--muted);margin-top:8px}
 .hint{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.35}
 .contacts-list{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;margin-top:8px}
+.contacts-counter{font-size:11px;color:var(--muted);text-align:center;margin-top:8px;padding:4px}
+.contacts-section{margin-top:8px}
+.section-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.06);border-radius:8px;user-select:none}
+.section-header:hover{background:rgba(255,255,255,.10)}
+.section-icon{font-size:12px;transition:transform .2s;width:16px;text-align:center}
+.section-title{font-weight:600;font-size:13px}
+.section-content{margin-top:4px}
 .contact-item{padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line)}
 .contact-item:last-child{border-bottom:none}
 .contact-item:hover{background:rgba(255,255,255,.08)}
@@ -49,6 +56,7 @@
 .btn-clear:hover{color:var(--text)}
 .btn.secondary{background:rgba(255,255,255,.1);color:var(--text)}
 .btn.secondary:hover{background:rgba(255,255,255,.14)}
+.btn.secondary:disabled,.btn.secondary.disabled{background:rgba(255,255,255,.05);color:var(--muted);cursor:not-allowed;opacity:.5}
 .input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:14px;margin-top:8px;box-sizing:border-box;background:#0b121c;color:var(--text);outline:none}
 .input::placeholder{color:var(--muted)}
 .media-progress-container{margin-top:12px;padding:12px;background:rgba(0,128,105,.1);border-radius:8px;border:1px solid rgba(0,128,105,.2)}

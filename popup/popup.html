@@ -16,7 +16,7 @@
           <div class="subtitle">Backup do WhatsApp Web</div>
         </div>
       </div>
-      <div class="version">v1.7.1</div>
+      <div class="version">v1.8.0</div>
     </header>
 
     <div id="status" class="status">
@@ -36,9 +36,34 @@
       <div id="contactsContainer" class="hidden">
         <input type="text" id="searchContacts" class="input" placeholder="🔍 Buscar contato ou grupo...">
         
-        <div id="contactsList" class="contacts-list">
-          <!-- Lista será preenchida dinamicamente -->
+        <div style="margin-top: 8px;">
+          <label class="label">Ordenar por:</label>
+          <select id="sortContacts" class="select">
+            <option value="recent">Mais recentes</option>
+            <option value="name-asc">Nome A-Z</option>
+            <option value="name-desc">Nome Z-A</option>
+          </select>
         </div>
+        
+        <div id="contactsCounter" class="contacts-counter hidden"></div>
+        
+        <div id="groupsSection" class="contacts-section">
+          <div class="section-header" id="groupsHeader">
+            <span class="section-icon">▼</span>
+            <span class="section-title">👥 Grupos (<span id="groupsCount">0</span>)</span>
+          </div>
+          <div id="groupsList" class="contacts-list section-content"></div>
+        </div>
+        
+        <div id="contactsSection" class="contacts-section">
+          <div class="section-header" id="contactsHeader">
+            <span class="section-icon">▼</span>
+            <span class="section-title">👤 Contatos (<span id="contactsCount">0</span>)</span>
+          </div>
+          <div id="contactsList" class="contacts-list section-content"></div>
+        </div>
+        
+        <button id="btnLoadMore" class="btn secondary hidden">Carregar mais</button>
       </div>
       
       <div id="selectedContact" class="selected-contact hidden">
@@ -59,6 +84,7 @@
           <div class="chatMeta" id="chatMeta">—</div>
         </div>
       </div>
+      <button id="btnExportCurrent" class="btn secondary" style="margin-top: 10px;">📤 Exportar Conversa Atual</button>
     </div>
 
     <div class="card">
@@ -108,6 +134,11 @@
       </label>
       
       <label class="check">
+        <input type="checkbox" id="exportVideos">
+        <span>🎬 Vídeos</span>
+      </label>
+      
+      <label class="check">
         <input type="checkbox" id="exportAudios">
         <span>🎵 Áudios</span>
       </label>
@@ -141,6 +172,15 @@
             <div class="media-bar" id="imageBar"></div>
           </div>
           <span class="media-count" id="imageCount">0/0</span>
+        </div>
+        
+        <div id="videoProgress" class="media-progress-row" style="display: none;">
+          <span class="media-icon">🎬</span>
+          <span class="media-label">Vídeos:</span>
+          <div class="media-bar-container">
+            <div class="media-bar" id="videoBar"></div>
+          </div>
+          <span class="media-count" id="videoCount">0/0</span>
         </div>
         
         <div id="audioProgress" class="media-progress-row" style="display: none;">
