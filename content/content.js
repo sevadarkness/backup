@@ -160,6 +160,7 @@
   // Track detailed media progress state
   const mediaProgressState = {
     images: { current: 0, total: 0, failed: 0 },
+    videos: { current: 0, total: 0, failed: 0 },
     audios: { current: 0, total: 0, failed: 0 },
     docs: { current: 0, total: 0, failed: 0 }
   };
@@ -175,11 +176,11 @@
       let percent = 5;
       if (payload?.phase === "tick") {
         // Adjust based on whether media export is enabled
-        const hasMediaExport = exporting && (currentExportSettings?.exportImages || currentExportSettings?.exportAudios || currentExportSettings?.exportDocs);
+        const hasMediaExport = exporting && (currentExportSettings?.exportImages || currentExportSettings?.exportVideos || currentExportSettings?.exportAudios || currentExportSettings?.exportDocs);
         const maxPercent = hasMediaExport ? 30 : 60;
         percent = Math.min(maxPercent, 5 + Math.round((attempt / Math.max(maxLoads, 1)) * (maxPercent - 5)));
       } else if (payload?.phase === "final") {
-        const hasMediaExport = exporting && (currentExportSettings?.exportImages || currentExportSettings?.exportAudios || currentExportSettings?.exportDocs);
+        const hasMediaExport = exporting && (currentExportSettings?.exportImages || currentExportSettings?.exportVideos || currentExportSettings?.exportAudios || currentExportSettings?.exportDocs);
         percent = hasMediaExport ? 30 : 60;
       }
       chrome.runtime.sendMessage({ type: "progress", current: loaded, total: target, percent, status: `Carregando histórico... (${loaded} msgs)` });
@@ -189,7 +190,7 @@
       const current = payload?.current ?? 0;
       const total = payload?.total ?? 0;
       const failed = payload?.failed ?? 0;
-      const groupLabel = groupName === 'images' ? 'imagens' : groupName === 'audios' ? 'áudios' : 'documentos';
+      const groupLabel = groupName === 'images' ? 'imagens' : groupName === 'videos' ? 'vídeos' : groupName === 'audios' ? 'áudios' : 'documentos';
       
       // Update state
       if (mediaProgressState[groupName]) {
@@ -213,11 +214,13 @@
       // Calculate percentage based on media type
       let percent = 50;
       if (groupName === 'images') {
-        percent = 50 + Math.round((current / Math.max(total, 1)) * 15); // 50-65%
+        percent = 50 + Math.round((current / Math.max(total, 1)) * 10); // 50-60%
+      } else if (groupName === 'videos') {
+        percent = 60 + Math.round((current / Math.max(total, 1)) * 10); // 60-70%
       } else if (groupName === 'audios') {
-        percent = 65 + Math.round((current / Math.max(total, 1)) * 10); // 65-75%
+        percent = 70 + Math.round((current / Math.max(total, 1)) * 8); // 70-78%
       } else if (groupName === 'docs') {
-        percent = 75 + Math.round((current / Math.max(total, 1)) * 10); // 75-85%
+        percent = 78 + Math.round((current / Math.max(total, 1)) * 7); // 78-85%
       }
       
       const failedText = failed > 0 ? ` - ${failed} falharam` : '';
@@ -301,6 +304,7 @@
     
     // Reset media progress state
     mediaProgressState.images = { current: 0, total: 0, failed: 0 };
+    mediaProgressState.videos = { current: 0, total: 0, failed: 0 };
     mediaProgressState.audios = { current: 0, total: 0, failed: 0 };
     mediaProgressState.docs = { current: 0, total: 0, failed: 0 };
 
@@ -347,7 +351,7 @@
       const maxLoads = wantAll ? 8000 : 1200;
       const delayMs = wantAll ? 900 : 650;
       
-      const hasMediaExport = settings.exportImages || settings.exportAudios || settings.exportDocs;
+      const hasMediaExport = settings.exportImages || settings.exportVideos || settings.exportAudios || settings.exportDocs;
 
       chrome.runtime.sendMessage({ type: "progress", current: 0, total: wantAll ? hardCap : (limit || 0), percent: 2, status: "Buscando mensagens (API interna)..." });
 
@@ -371,12 +375,13 @@
       await generateExport(normalized, settings, chat);
 
       // Check if we need to download media
-      if (settings.exportImages || settings.exportAudios || settings.exportDocs) {
+      if (settings.exportImages || settings.exportVideos || settings.exportAudios || settings.exportDocs) {
         chrome.runtime.sendMessage({ type: "progress", percent: 50, status: "Preparando download de mídias..." });
         
         try {
           const mediaResults = await bridge.downloadMediaForExport(wa.messages, {
             exportImages: settings.exportImages,
+            exportVideos: settings.exportVideos,
             exportAudios: settings.exportAudios,
             exportDocs: settings.exportDocs
           });
@@ -406,15 +411,19 @@
           
           // Download ZIPs for each media type with proper percentages
           if (settings.exportImages) {
-            await downloadFromBlobUrl(mediaResults.images, 'imagens', 'imagens', 87);
+            await downloadFromBlobUrl(mediaResults.images, 'imagens', 'imagens', 86);
+          }
+          
+          if (settings.exportVideos) {
+            await downloadFromBlobUrl(mediaResults.videos, 'videos', 'vídeos', 88);
           }
           
           if (settings.exportAudios) {
-            await downloadFromBlobUrl(mediaResults.audios, 'audios', 'áudios', 90);
+            await downloadFromBlobUrl(mediaResults.audios, 'audios', 'áudios', 91);
           }
           
           if (settings.exportDocs) {
-            await downloadFromBlobUrl(mediaResults.docs, 'docs', 'documentos', 93);
+            await downloadFromBlobUrl(mediaResults.docs, 'docs', 'documentos', 94);
           }
         } catch (e) {
           console.error("[ChatBackup] Erro ao processar mídias:", e);
