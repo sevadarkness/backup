@@ -31,33 +31,36 @@
     };
     
     if (!document.getElementById(jszipId)) {
-      // Fetch JSZip content and inject with wrapper to force window.JSZip
+      // Fetch JSZip content and inject with wrapper to force window.JSZip registration
       fetch(chrome.runtime.getURL("libs/jszip.min.js"))
         .then(response => response.text())
         .then(jszipCode => {
           const script = document.createElement("script");
           script.id = jszipId;
           
-          // Wrapper que força JSZip para window global
-          // Salva e remove define/module temporariamente para forçar modo browser
+          // Wrapper that forces JSZip to window global
+          // Temporarily save and remove define/module to force browser mode
           script.textContent = `
             (function() {
-              var _define = window.define;
-              var _module = window.module;
-              var _exports = window.exports;
+              var _hasDefine = ('define' in window);
+              var _hasModule = ('module' in window);
+              var _hasExports = ('exports' in window);
+              var _define = _hasDefine ? window.define : undefined;
+              var _module = _hasModule ? window.module : undefined;
+              var _exports = _hasExports ? window.exports : undefined;
               
-              // Remover temporariamente para forçar modo browser
+              // Temporarily remove to force browser mode
               try { delete window.define; } catch(e) { window.define = undefined; }
               try { delete window.module; } catch(e) { window.module = undefined; }
               try { delete window.exports; } catch(e) { window.exports = undefined; }
               
-              // Código do JSZip
+              // JSZip code
               ${jszipCode}
               
-              // Restaurar
-              if (_define !== undefined) window.define = _define;
-              if (_module !== undefined) window.module = _module;
-              if (_exports !== undefined) window.exports = _exports;
+              // Restore only if they originally existed
+              if (_hasDefine) window.define = _define;
+              if (_hasModule) window.module = _module;
+              if (_hasExports) window.exports = _exports;
               
               console.log('[ChatBackup] JSZip forced to window.JSZip:', typeof window.JSZip);
             })();
